@@ -1,0 +1,7 @@
+list:List
+read:Read
+write:Write
+control:Control 
+all:All
+help:Help
+cancel:Cancel

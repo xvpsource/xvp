@@ -1,0 +1,119 @@
+.TH  "XVPTAG" "8" "04 August 2010" "Colin Dean" "Colin Dean"
+.SH NAME
+xvptag \- Manipulate XenServer and XCP virtual machine tags
+
+.SH SYNOPSIS
+.PP
+\fBxvptag\fR [ \fBoptions\fR ] vm-name-or-uuid
+
+.SH DESCRIPTION
+This tool is part of the \fBxvp\fR(8) suite.
+.PP
+.B xvp
+(standing for Xen VNC Proxy) is a proxy server providing
+password-protected VNC-based access to the consoles of virtual machines
+hosted on Citrix(R) XenServer and Xen Cloud Platform.
+.PP
+The
+.B xvptag
+program can be used to manipulate virtual machine tags in a XenServer or
+Xen Cloud Platform pool.  Tags are used by \fBxvpdiscover\fR(8) and
+\fBxvpweb\fR(7), to group virtual machines for display and for managing
+user rights.
+.PP
+If used interactively, \fBxvptag\fR will prompt for some common options,
+alternatively, all options can be supplied on the command line, allowing
+it to be used in non-interactive scripts.
+.SH OPTIONS
+
+.TP
+.B -s server | --server server
+The hostname or Internet address of one of the XenServer hosts in the
+pool.  If not supplied, the program will prompt for this.
+.TP
+.B -u username | --username username
+A valid username to use to connect to the server.  This is usually the
+administrative account, "root".  If not supplied, the program will
+prompt for a username.
+.TP
+.B -x password | --xenpassword password
+The XenServer password for the specified user.  If supplied on the
+command line, this should be in encrypted form, as generated using the
+\fB-x\fR option of \fBxvp\fR(8).  If not specified, the program will
+prompt for the password (without echoing), which in this case should be
+supplied in unencrypted form, and must be between 1 and 16 characters
+long.
+.TP
+.B -l | --list
+Lists the tags associated with the virtual machine whose name or UUID is
+specified or, if no virtual machine is specified, lists the tags for
+each virtual machine in the pool.
+.TP
+.B -a tag | --add tag
+Adds the specified tag to the virtual machine.  If the virtual machine
+already has this tag, this succeeds but does nothing.
+.TP
+.B -r tag | --remove tag
+Removes the specified tag from the virtual machine.  If the virtual
+machine does not have this tag, this succeeds but does nothing.
+.PP
+Precisely one of the list, add and remove options must be specified.
+
+.SH DIAGNOSTICS
+If successful, \fBxvptag\fR exits with a status value of zero.  If
+it has a problem, it writes a message to standard error and exits
+immediately with a non-zero status value.
+
+.SH "EXAMPLE"
+To add a tag "xvp: Web Servers" to virtual machine with name label
+"web1", in a pool one of whose servers is named "xen1":
+.PP
+.RS
+\fBxvptag \-s xen1 \-a "xvp: Web Servers" web1\fR
+.RE
+
+.SH "SEE ALSO"
+\fBxvp\fR(8),
+\fBxvpdiscover\fR(8),
+\fBxvpweb\fR(7),
+\fBxvp.conf\fR(5),
+\fBxvpviewer\fR(1)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2010 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

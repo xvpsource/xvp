@@ -1,0 +1,131 @@
+.TH  "XVPVIEWER" "1" "05 December 2009" "Colin Dean" "Colin Dean"
+.SH NAME
+xvpviewer \- A Viewer for xvp
+
+.SH SYNOPSIS
+.PP
+\fBxvpviewer [ -vm vm ] host:display\fR
+.PP
+\fBxvpviewer [ -vm vm ] host::port\fR
+
+.SH DESCRIPTION
+.B xvpviewer
+Is a Java-based VNC Viewer, designed for use with \fBxvp\fR(8).
+\fBxvp\fR (standing for Xen VNC Proxy) is a proxy server providing
+password-protected VNC-based access to the consoles of virtual machines
+hosted on Citrix XenServer.  As well as being supplied in standalone
+form, \fBxvpviewer\fR is also supplied in Java applet form as part of
+the \fBxvpweb\fR(7) web based front end for XenServer.
+.PP
+.B xvpviewer
+is based on the TightVNC Java Viewer, but with added support for
+mouse-wheel scrolling.  It can be used to connect to any VNC server
+compatible with the TightVNC Viewer.  However, when used with
+\fBxvp\fR(8), \fBxvpviewer\fR has additional buttons to allow virtual
+machine shutdown, reboot and reset to be initiated, and can be used to
+access different virtual machines served by \fBxvp\fR(8) from a single
+multiplexed TCP port.
+
+.SH OPTIONS
+.TP
+.B -vm vm
+This option is required when connecting to a multiplexed port served by
+\fBxvp\fR(8).  It tells \fBxvp\fR(8) which virtual machine's console
+is required.  If the configuration file \fBxvp.conf\fR(5) has been set
+to specify virtual machines by UUID, then the UUID must be given,
+otherwise the virtual machine's name label must be used.  In cases where
+\fBxvp.conf\fR(5) lists more than one XenServer pool, the UUID or name
+label can be prefixed by the name of the pool and a colon to avoid
+ambiguity. This option is optional if not connecting to a multiplexed
+port, but must match the relevant virtual machine if specified.
+.TP
+.B host:display
+Connects to the VNC server on the specified host, using the specified
+VNC display number.  If omitted, the display defaults to 0.
+.TP
+.B host::port
+Connects to the VNC server on the specified host, using the specified
+port number.  If omitted, the port defaults to 5900.
+
+.SH XVP-SPECIFIC BUTTONS
+.TP
+.B Shutdown
+Requests a clean shutdown of the virtual machine.  This may not have any
+effect if the virtual machine is generally unresponsive or does not have
+any necessary guest agent installed.  After shutdown, the viewer will be
+disconnected (a delay can be configured via \fBxvp\fR(8)).  Note that if
+the virtual machine is protected by HA, this will automatically be
+disabled prior to shutdown.
+.TP
+.B Reboot
+Requests a clean reboot of the virtual machine.  This may not have any
+effect if the virtual machine is generally unresponsive or does not have
+any necessary guest agent installed.  After reboot, the viewer will only
+remain connected if \fBxvp\fR(8) has been configured appropriately.
+.TP
+.B Reset
+Requests a hard reboot of the virtual machine.  The virtual machine will
+stop executing without a clean shutdown, and then be restarted.  This
+may result in data corruption, and should therefore only be used if
+there is no way of cleanly rebooting the virtual machine.  After
+restart, the viewer will only remain connected if \fBxvp\fR(8) has been
+configured appropriately.
+
+.SH FILES
+The \fI/usr/bin/xvpviewer\fR program is a bash script which runs Java
+using the associated JAR file, \fI/usr/share/xvp/VncViewer.jar\fR.  Both
+have been tested on Linux. MacOS X and Solaris.
+
+Also supplied is a batch file, \fI/usr/share/xvp/xvpviewer.bat\fR, which
+can be used to run the JAR file on Microsoft(R) Windows(R) operating
+systems.  It supports the same command line options.
+
+.SH JAVA RUNTIME COMPATIBILITY
+.B xvpviewer
+is compatible with the Java(TM) runtime library from Sun Microsystems,
+Inc.  It is not compatible with the GNU gcj runtime.  The JAR file can
+be served as an applet by a web server running on the same host as
+\fBxvp\fR(8), and can be viewed in most popular web browsers.  Applet
+configuration is the same as for TightVNC, as documented in the file
+\fIREADME.tightvnc\fR, except that an additional parameter "VM" needs to
+be used to specify the virtual machine, if connecting to a multiplexed
+port.
+
+.SH "SEE ALSO"
+\fBxvp\fR(8),
+\fBxvpweb\fR(7),
+\fBvncviewer\fR(1),
+\fBREADME.tightvnc\fR
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+.nf
+Copyright \(co 1999 AT&T Laboratories Cambridge.
+Copyright \(co 2000 Tridia Corp.
+Copyright \(co 2002-2003 RealVNC Ltd.
+Copyright \(co 2001-2004 HorizonLive.com, Inc.
+Copyright \(co 2000-2007 Constantin Kaplinsky
+Copyright \(co 2000-2009 TightVNC Group
+Copyright \(co 2009 Colin Dean
+All rights reserved.
+.fi
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+For additional TightVNC copyright information and acknowledgments, refer
+to the installed file \fIREADME.tightvnc\fR.

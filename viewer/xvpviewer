@@ -1,0 +1,74 @@
+#!/bin/bash
+#
+# xvpviewer wrapper script to run Java VNC Viewer for XVP
+#
+# Copyright (c) 2009 Colin Dean.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+
+usage() {
+    echo "Usage: xvpviewer [ -vm [pool:]vm ] host[:display]" 1>&2
+    echo "       xvpviewer [ -vm [pool:]vm ] host[::port]" 1>&2
+    exit 1
+}
+
+BINDIR=$(dirname $0)
+DATADIR=/usr/share/xvp
+
+if [ -f "${BINDIR}/VncViewer.jar" ]; then
+    DATADIR="${BINDIR}"
+elif [ ! -f "${DATADIR}/VncViewer.jar" ]; then
+    echo "xvpviewer: ${DATADIR}/VncViewer.class: Not found" 1>&2
+    exit 2
+fi
+
+cd "${DATADIR}"
+
+vm=""
+if [ $# -gt 1 -a "$1" = "-vm" ]; then
+    vm="$2"
+    shift 2;
+fi
+
+[ $# = 1 ] || usage
+
+case "$1" in
+    -*)
+	usage
+	;;
+    ::*)
+	host=localhost
+	port=${1#::}
+	;;
+    :*)
+	host=localhost
+	port=$(expr ${1#:} + 5900)
+	;;
+    *:)
+	host=${1%:}
+	port=5900
+	;;
+    *::*)
+	host=${1%::*}
+	port=${1#*::}
+	;;
+    *:*)
+	host=${1%:*}
+	port=$(expr ${1#*:} + 5900)
+	;;
+    *)
+	host=$1
+	port=5900
+	;;
+esac
+
+java -Xmx64m -jar VncViewer.jar HOST $host PORT $port VM "$vm"

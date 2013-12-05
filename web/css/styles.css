@@ -1,0 +1,336 @@
+/*
+ * styles.css - Styles for Xen VNC Proxy PHP Pages
+ *
+ * Copyright (C) 2009-2011, Colin Dean
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ */
+
+body {
+	color: black;
+	background-color: white;
+	font-family: Arial, sans-serif;
+	font-size: 14px;
+	text-align: left;
+	margin: 0px;
+	padding: 0px;
+}
+
+div, img, iframe, form, table, td, tr, th, h1, h2, h3, h4, p {
+	margin: 0px;
+	padding: 0px;
+}
+
+img.toggle {
+	padding-right: 5px;
+}
+
+div#timestamp {
+	padding-top: 10px;
+	padding-bottom: 10px;
+	text-align: center;
+	font-size: 14px;
+}
+
+div#reloads {
+	text-align: center;
+	font-size: 12px;
+	font-style: italic;
+}
+
+h1 {
+	font-size: 20px;
+	text-align: center;
+	margin-top: 30px;
+}
+
+h2 {
+	padding: 10px;
+	font-size: 16px;
+}
+
+h2.center {
+	text-align: center;
+}
+
+h3 {
+	padding: 4px;
+	font-size: 14px;
+}
+
+th.host, th.vm {
+	font-weight: normal;
+	border: 1px solid black;
+	text-align: left;
+	padding-left: 4px;
+	background-color: white;
+}
+
+th.host {
+	width: 200px;
+
+}
+
+th.vm {
+	width: 210px;
+
+}
+
+td {
+	font-weight: normal;
+	border: 1px solid black;
+	width: 80px;
+	text-align: center;
+	background-color: white;
+}
+
+td.oslogo, td.button, td.empty {
+	width: 30px;
+}
+
+td.host, td.vm {
+	border: none;
+	padding: 0px;
+	margin: 0px;
+	width: 540px;
+	background-color: #c0c4c0;
+}
+
+td.group {
+	width: 100%;
+	border: none;
+	padding: 0px;
+	padding-left: 2px;
+	margin: 0px;
+	text-align: left;
+	line-height: 30px;
+	background-color: #c0c4c0;
+}
+
+td.memfree {
+	width: 130px;
+	text-align: right;
+	padding-right: 4px;
+}
+
+td.memtotal {
+	width: 60px;
+	text-align: right;
+	padding-right: 4px;
+}
+
+tr.host td.running, tr.host td.halted, tr.host td.suspended, tr.host td.unknown {
+	width: 150px;
+}
+
+tr.vm td.running, tr.vm td.halted, tr.vm td.suspended, tr.vm td.unknown {
+	width: 180px;
+}
+
+/* If you change these background colors, edit requester.js to match */
+td.running {
+	background-color: #20b020;
+}
+
+td.halted {
+	background-color: #d02020;
+}
+
+td.suspended {
+	background-color: #4040d0;
+}
+
+td.unknown {
+	background-color: #c060c0;
+}
+
+img.button, img.oslogo {
+	width: 28px;
+	height: 28px;
+}
+
+div.pool {
+	margin: 10px;
+	clear: both;
+}
+
+div.hosts, div.vmsright, div.vmscenter {
+	background-color: #c0c4c0;
+	padding: 5px;
+	margin: 5px;
+	border-width: 4px;
+	border-style: groove;
+	border-color: white;
+	-webkit-border-radius: 5px;
+}
+
+div.hosts {
+	width: 570px;
+	float: left;
+}
+
+div.vmsright {
+	width: 570px;
+	float: right;
+}
+
+div.vmscenter {
+	width: 570px;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+div#error {
+	position:absolute;
+	text-align: center;
+	top: 150px;
+	left: 100px;
+	width: 80%;
+	padding: 10px;
+	border-width: 4px;
+	border-style: groove;
+}
+
+iframe.hidden {
+	position: absolute;
+	left: 0px;
+	width: 0px;
+	top: 0px;
+	height: 0px;
+	border: none;
+}
+
+h1.properties, h1.snapshot {
+	font-size: 16px;
+	text-align: center;
+	margin-top: 30px;
+}
+
+h1.properties {
+	margin-bottom: 25px;
+}
+
+h1.snapshot {
+	margin-bottom: 10px;
+}
+
+input.snapshot {
+	font-size: 14px;
+	margin-left: 20px;
+	margin-right: 20px;
+	width: 300px;
+}
+
+img.properties {
+	position: absolute;
+	border: none;
+	top: 20px;
+	left: 20px;
+}
+
+table.properties {
+	border: none;
+}
+
+table.properties th {
+	font-weight: normal;
+	text-align: left;
+	padding-left: 20px;
+	padding-right: 10px;
+}
+
+table.properties td {
+	border: none;
+	text-align: left;
+	width: auto;
+}
+
+h1.action {
+	font-size: 16px;
+	text-align: center;
+	margin-top: 30px;
+	margin-bottom: 30px;
+}
+
+form.action {
+	margin-left: 40px;
+}
+
+form.action select {
+	margin-top: 20px;
+	clear: left;
+	font-family: Arial, sans-serif;
+	font-size: 14px;
+}
+
+div.action {
+	margin-top: 20px;
+}
+
+div.action button {
+	width: 70px;
+	margin-right: 10px;
+	font-family: Arial, sans-serif;
+	font-size: 14px;
+}
+
+p.action, div.ok {
+	margin-left: 40px;
+}
+
+div.properties {
+	position: absolute;
+	right: 20px;
+	bottom: 20px;
+}
+
+div.properties button {
+	width: 70px;
+	margin-left: 10px;
+	font-family: Arial, sans-serif;
+	font-size: 14px;
+}
+
+div.recovery {
+	padding-top: 20px;
+}
+
+#logo {
+	position: absolute;
+	height: 80px;
+	left: 0px;
+	top: 0px;
+	font-family: Verdana, Arial, sans-serif;
+}
+
+
+#logo h1 {
+	position: absolute;
+	top: 10px;
+	left: 30px;
+	margin-top: 0px;
+	font-size: 32px;
+	line-height: 50px;
+	font-weight: normal;
+}
+
+a.logo {
+	font-size: 32px;
+	font-style: italic;
+	text-decoration: none;
+	color: rgb(116, 46, 103);
+}
+
+span.tm {
+	vertical-align: top;
+	font-size: 50%;
+}
+

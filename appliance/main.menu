@@ -1,0 +1,10 @@
+about_program:About this program
+configure_timezone:Configure timezone
+configure_network:Configure network
+configure_email:Configure email
+configure_xvp_pools:Configure xvp pools
+configure_xvp_users:Configure xvp users
+configure_web_server:Configure web server
+manage_software_updates:Manage software updates
+unconfigure_appliance:Unconfigure appliance
+quit:Quit from program

@@ -1,0 +1,236 @@
+.TH  "XVPDISCOVER" "8" "27 December 2010" "Colin Dean" "Colin Dean"
+.SH NAME
+xvpdiscover \- Discover XenServer and XCP hosts and virtual machines
+
+.SH SYNOPSIS
+.PP
+\fBxvpdiscover\fR \fBoptions\fR
+
+.SH DESCRIPTION
+This tool is part of the \fBxvp\fR(8) suite.
+.PP
+.B xvp
+(standing for Xen VNC Proxy) is a proxy server providing
+password-protected VNC-based access to the consoles of virtual machines
+hosted on Citrix(R) XenServer and Xen Cloud Platform.
+.PP
+The
+.B xvpdiscover
+program can be used to interrogate a XenServer pool, determine the hosts
+and virtual machines in the pool, and write an output file in the format
+of \fBxvp.conf\fR(5), the configuration file for \fBxvp\fR(8) and
+\fBxvpweb\fR(7).
+.PP
+If used interactively, \fBxvpdiscover\fR will prompt for common
+options, alternatively, all options can be supplied on the command line,
+allowing it to be used in non-interactive scripts.
+.SH OPTIONS
+
+.TP
+.B -s server | --server server
+The hostname or Internet address of one of the XenServer hosts in the
+pool.  \fBxvpdiscover\fR will connect to this server to discover
+information about the pool.  If not supplied, the program will prompt
+for this.
+.TP
+.B -u username | --username username
+A valid username to use to connect to the server.  This is usually the
+administrative account, "root".  If not supplied, the program will
+prompt for a username.
+.TP
+.B -x password | --xenpassword password
+The XenServer password for the specified user.  If supplied on the
+command line, this should be in encrypted form, as generated using the
+\fB-x\fR option of \fBxvp\fR(8).  If not specified, the program will
+prompt for the password (without echoing), which in this case should be
+supplied in unencrypted form, and must be between 1 and 16 characters
+long.
+.TP
+.B -v password | --vncpassword password
+A VNC password to be used for all the virtual machines in the pool.  If
+supplied on the command line, this should be in encrypted form, as
+generated using the \fB-e\fR option of \fBxvp\fR(8).  If not specified,
+the program will prompt for the password (without echoing), which in
+this case should be supplied in unencrypted form, and must be between 1
+and 8 characters long, and contain only non-space ASCII characters.
+This option cannot be used in conjunction with the \fB-r\fR option.
+.TP
+.B -r | --randompasswords
+This option cannot be used in conjunction with the \fB-v\fR option.  If
+used, the program does not prompt for a VNC password: instead it
+generates a different 8-character pseudo-random VNC password for each
+virtual machine.  For a virtual machine with a given UUID, the same
+password will be generated each time this program is run.  This option
+would make no sense to use if you connect to \fBxvp\fR(8) directly using
+a VNC viewer such as \fBxvpviewer\fR(1), but is ideal if all connections
+are made using the web-based interface that is available with
+\fBxvp\fR(8).
+.TP
+.B -m [ port-number ] | --multiplex [ port-number ]
+By default, \fBxvpdiscover\fR(8) writes a configuration file to instruct
+\fBxvp\fR(8) to listen on a separate TCP port for each virtual machine.
+However, if this option is used, it will instruct it to listen on a
+single TCP port instead, and to multiplex clients requiring access to
+different virtual machine consoles using this single port.  If a port
+number is not specified, it defaults to 5900.
+
+If the \fB-m\fR option is specified, the configuration file will not
+instruct \fBxvp\fR(8) to listen on dedicated ports for individual
+virtual machines as well, unless the \fB-p\fR option, described below,
+is also specified.
+
+Only clients supporting the XVP security type extension to the RFB
+protocol (for example, \fBxvpviewer\fR(1) and \fBxvpweb\fR(7)) can
+access consoles through a multiplexed port, but all VNC clients should
+be able to connect successfully to dedicated ports.
+.TP
+.B -p port-number | --portbase port-number
+Individual VNC port numbers are automatically generated for all virtual
+machines, starting at this base value, and increasing one by one, unless
+the \fB-m\fR option is specified.  By default, the base value is 5900,
+but it only makes sense to use this if the pool has less than 100
+virtual machines with dedicated ports.  In cases where there are more
+virtual machines, you should supply a sensible base value such that the
+port numbers used by \fBxvp\fR(8) will not clash with those used by
+other programs: a value that is often suitable is 50000.
+
+If you specify the \fB-m\fR option, port numbers for dedicated ports are
+not generated unless you use the \fB-p\fR option as well.  If using both
+options, choose the two port numbers so that the port for any individual
+virtual machine will not clash with the multiplex port.
+.TP
+.B -a | --addresses
+By default, \fBxvpdiscover\fR lists server hosts in its output
+identified by name label.  Using this option forces it to output the IP
+address of each host as well as its name label.  This option must be
+used if host name labels have been changed so they are different from
+hostnames, otherwise \fBxvp\fR(1) will fail to connect to them.  It is
+probably a good idea to use this option in all cases.
+.TP
+.B -c | --hostconsoles
+By default, \fBxvpdiscover\fR writes an output file that will allow VNC
+access to virtual machine consoles, but not to host consoles.  Using
+this option forces it to include support for host consoles.  This is a
+potentially dangerous option, because host consoles are permanently
+logged in as root.  Use with extreme caution.
+.TP
+.B -n | --names
+By default, \fBxvpdiscover\fR lists virtual machines in its output
+identified by UUID (with name labels as comments).  Using this option
+forces it to use name labels instead of UUIDs.  Both formats are
+acceptable to \fBxvp\fR(1), refer to \fBxvp.conf\fR(5) for a discussion
+of the differences.
+.TP
+.B -g tagprefix | --grouptag tagprefix
+This option allows \fBxvpdiscover\fR to use the GROUP keyword in its
+output, to group virtual machines for use with the associated web
+interface.  If this option is not used, groups are not output: all
+virtual machines appear in a single alphabetically sorted list.  To make
+use of this option, you need to have tagged all the virtual machines
+you're interested in (e.g. using XenCenter or \fBxvptag\fR(8)) with tags
+that are of the form "tagprefix Group Name", no more than one such tag
+per virtual machine. The choice of prefix is entirely yours, for example
+you might use tags like "Group: Web Server" and "Group: Database Server"
+: in this case, you would specify the tag prefix as "Group:".  Groups
+are output in alphabetical order, with virtual machines within each
+group also alphabetically sorted by name label, and virtual machines
+without a suitable tag are ignored.
+.TP
+.B -o filename | --output filename
+The name of the file to write the configuration to.  If not specified,
+the program will prompt for a name.  To use standard output, specify as
+"-". 
+.TP
+.B -f | --forceoverwrite
+By default, an output file will not be overwritten if it already
+exists.  Using this option overrides the restriction.
+
+.SH DIAGNOSTICS
+If successful, \fBxvpdiscover\fR exits with a status value of zero.  If
+it has a problem, it writes a message to standard error and exits
+immediately with a non-zero status value.
+
+.SH SUGGESTED USE
+Generally, you are recommended not to directly overwrite a configuration
+file that's in use, without some sort of sanity check that the new file
+is correct.  If you want your \fBxvp.conf\fR(5) file to be updated
+regularly and automatically, you might write a script, to be run from
+\fBcron\fR(8) every hour or every day.  In the script, you could run
+\fBxvpdiscover\fR(8) to a temporary file.  If that's identical to the
+version of the file currently in use, it would exit, if there were lots
+of differences it might make no changes but email you, and if there were
+a small number of differences it could overwrite the configuration file
+in use and send a SIGUSR1 signal to \fBxvp\fR(8) to cause it to re-read
+the file.
+
+Note that \fBxvpdiscover\fR(8) does not write a DATABASE or OTP line
+into the configuration file: if you need these you must add them
+afterwards.
+
+.SH "EXAMPLES"
+To write a configuration to a new file /etc/xvp.conf, with one port per
+virtual machine, starting at port 5900, with the same password for each
+virtual machine, for a pool one of whose XenServer hosts is named
+"xen1", and to identify virtual machines by UUID:
+.PP
+.RS
+\fBxvpdiscover \-s xen1 \-o /etc/xvp.conf\fR
+.RE
+.PP
+To do the same, except to use a single multiplex port 5900, to use
+random virtual machine passwords, to identify virtual machines by name
+label, and to allow any existing file to be overwritten:
+.PP
+.RS
+\fBxvpdiscover \-r \-n \-f \-m 5900 \-s xen1 \-o /etc/xvp.conf\fR
+.RE
+.PP
+In both examples, the program prompts for the XenServer username and
+password, and in the first case for the VNC password as well.
+
+.SH "SEE ALSO"
+\fBxvp\fR(8),
+\fBxvptag\fR(8),
+\fBxvpweb\fR(7),
+\fBxvp.conf\fR(5),
+\fBxvpviewer\fR(1),
+\fBcron\fR(8)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2009-2010 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

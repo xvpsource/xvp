@@ -1,0 +1,286 @@
+
+        xvp - A VNC Console Proxy Server for Citrix(R) XenServer
+
+                       http://www.xvpsource.org/
+
+
+Overview
+--------
+
+xvp (standing for Xen VNC Proxy) is a proxy server providing
+password-protected VNC-based access to the consoles of virtual machines
+hosted on Citrix XenServer and Xen Cloud Platform.
+
+Relying on a simple configuration file, it listens on multiple ports,
+one per virtual machine, and forwards VNC sessions to the appropriate
+server host(s).  It uses a VNC password for each virtual machine, as
+specified in encrypted form in the configuration file.  You can write a
+configuration file by hand, or make use of the supplied xvpdiscover
+utility to query your pool and write a configuration file for you.
+
+Standard VNC clients can connect to the appropriate port for the virtual
+machine they wish to access, and for each client a separate xvp process
+is forked to authenticate the client, connect to the appropriate server
+host, and proxy the data traffic.
+
+A custom Java-based VNC client, xvpviewer, is supplied with xvp.  This
+is based on the TightVNC viewer, but with xvp-specific additions to
+allow virtual machine shutdown, reboot and reset to be initiated from
+the viewer, and to provide mouse-wheel support.
+
+Also supplied is a web-based front end, xvpweb, providing a status view
+of XenServer and Xen Cloud Platform pools, hosts and virtual machines,
+and easy facilities to view virtual machine consoles and to boot,
+shutdown and reboot, suspend, resume, snapshot, revert and migrate
+virtual machines.  It makes use of xvp (running on the same machine as
+the web server) and xvpviewer (supplied in applet form).  By making use
+of a database or flat file, it can be made to restrict which users can
+manage particular virtual machines or groups of virtual machines.
+
+A complete self-contained appliance virtual machine, "xvpappliance", is
+also available.  This has xvp, xvpdiscover, xvpviewer and xvpweb
+pre-installed, and includes a simple to use menu-driven configuration
+program.
+
+Building
+--------
+
+To build xvp, you must first install the development packages for
+libxml2, curl, and the the XenServer C SDK 5.0.0 or 5.5.0 header files
+and library (libxenserver).  To run it, you just need the corresponding
+libraries.
+
+To build xvpviewer, you need a Java compiler.  To run it, you just
+need the JAR file or the compiled class files.  It is supplied with a
+shell script wrapper "xvpviewer", which has been tested on Linux, Mac OS
+X and Solaris, and a batch file "xvpviewer.bat" for Windows.
+
+To build both xvp and xvpviewer, extract the tarball and run "make" in
+its top-level directory.  To install both and associated manual pages,
+run "make install" (you will probably need to be root to do this).
+
+The web-based front end is written in PHP and requires PHP 5 with
+support for cURL, mcrypt and PDO.  It has to be run on the same host as
+xvp, and to have access to the same xvp.conf configuration file, or a
+copy of it (the location where this is looked for is specified in the
+web file globals.inc, and defaults to /etc/xvp.conf).  It has been
+tested using PHP 5.2 running in the Apache 2.2 web server.  To install,
+simply copy the contents of the "web" directory in the extracted tarball
+to an appropriate location for your web server.
+
+For more detailed instructions, see the web site.
+
+
+Security Considerations
+-----------------------
+
+Before deploying xvp, especially in an Internet-facing environment, you
+must consider and address the security issues.  These include.
+
+1. Securing the xvp.conf file
+
+This file contains passwords enabling direct access to your server hosts
+and virtual machines.  Although these are held encrypted in the file,
+the encryption is reversible, and anyone with access to your
+configuration file and the source code of xvp can decrypt them.
+
+If you are not using xvpweb, you should set the permissions on xvp.conf
+and its containing directory tree so that only root can access it, and
+adequately secure login and network file access to the machine holding
+the file.  If you are using xvpweb, you need to relax the file
+permissions carefully, as described below.
+
+2. Securing VNC access
+
+Anybody with a VNC client who can access the VNC ports used by xvp can
+attempt to connect to your virtual machine consoles, if they can guess
+or discover your VNC passwords.  So if you don't want these ports open
+to the world, you should secure them with one or more firewalls.
+
+It is also a good idea not to use the same VNC password for every
+virtual machine.  If only using xvpweb for access, the safest option is
+to use xvpdiscover to generate random passwords, and to regenerate these
+periodically.
+
+If you use the IPCHECK HTTP option in xvp.conf, then xvpweb clients will
+not connect directly to xvp, but tunnel their VNC connections via their
+web server connection.  If these are your only clients, you do not then
+need to allow external access to the VNC ports.
+
+3. Securing xvpweb
+
+By default, any user who can access xvpweb has full control of all
+virtual machines.  However, it is possible, and usually desirable, to
+enforce per-user access restrictions, by configuring the web server
+itself to authenticate users, and configuring xvpweb to then authorise
+these users to have appropriate access rights to individual virtual
+machines or groups of virtual machines.  The specifics of this are
+detailed in the xvpweb(7) and xvpusers.conf(5) manual pages.
+
+There are 5 main aspects to xvpweb security: web page access via
+HTTP/HTTPS, console access via VNC, console access via a tunnel over
+HTTP or HTTPS, access to xvp configuration data and security of VNC
+passwords.
+
+Firstly, you should secure your web server if you don't want everybody
+from anywhere to access the web interface.  Require your users to
+authenticate to the Apache web server itself, preferably over a secure
+(HTTPS) connection, and use the DATABASE keyword in xvp.conf to give
+some granularity as to which users can access which virtual machines.
+
+Secondly, be aware that when a user clicks on the console button for a
+virtual machine in xvpweb, their browser runs a Java applet, downloaded
+from your web server.  If you are using IPCHECK ON or IPCHECK OFF in
+xvp.conf, the applet then bypasses the web server to make a console
+connection, by connecting directly to xvp on the relevant VNC port.  So
+in this scenario you need to open your VNC ports to the IP addresses of
+your web users.  If xvpweb is the only way you want users to connect
+(i.e. not running xvpviewer or any other standard VNC client program),
+use "OTP REQUIRE" in xvp.conf to force clients to use xvpweb's one-time
+passwords (see below), and lock out standard VNC clients.
+
+If you want to use IPCHECK HTTP so that xvpweb clients tunnel their
+console connections over their web server connection, you need to enable
+proxying on your web server, but this poses severe risks to you and the
+wider Internet if not done securely.  Before pursuing this option,
+please read the "Guide to Tunnelling with xvp" at:
+
+  http://www.xvpsource.org/tunnel-guide.html
+
+Next, think hard about how you are going to protect your xvp.conf
+file.  Typically, the Apache web server runs as user "apache" in group
+"apache".  If you run all PHP scripts under this account, then this user
+must be able to read the xvp.conf file.  However, you don't want
+everybody to read it, and you don't want "apache" to change it.  So you
+might set its file permissions to look something like:
+
+  # ls -l /etc/xvp.conf
+  -rw-r----- 1 root apache 296 Nov 24 13:05 /etc/xvp.conf
+
+That's all very well, but then any PHP script on your web server can
+read the file, not just the xvpweb pages.  So you should either (a) not
+have any PHP scripts on the web server apart from xvpweb, or (b) use a
+mechanism whereby different scripts are owned by different users, for
+instance by using using mod_suphp (www.suphp.org).
+
+If you are using an xvpusers.conf file, restrict direct access to this
+in the same way as for xvp.conf.  Alternatively, if you are using a
+relational database to store user rights for xvpweb, ensure that access
+to this (especially for updates) is controlled appropriately.
+
+If you are using a relational database instead of an xvpusers.conf file,
+and the database server can authenticate users, you should include a
+username and encrypted password on the "DATABASE" line in xvp.conf,
+preferably using an account which has very limited access rights to the
+server's databases (ideally, read-only access to the xvp_users table in
+the selected database, and no access to any other databases or tables).
+If you have a SQLite database, use operating system file permissions to
+secure the database file appropriately: in particular, don't give PHP
+scripts run by the web server the ability to write to it.
+
+Finally, be aware that xvpweb exposes VNC passwords (not xvpweb's own
+per-user passwords, if in use) to the browser, and these could
+potentially be intercepted and reused by unauthorised people.  The
+architecture is such that when the user clicks on a virtual machine's
+console button in xvpweb, a page is returned to the browser, in a zero
+sized frame within the main page, containing an applet definition, which
+includes the VNC password.  This password is passed to the applet for it
+to pass in turn to xvp when it connects.  Prior to xvpweb version 1.3,
+the password was presented to the user in unencrypted form, which
+presented a significant security risk.  However, from version 1.3
+onwards, it is presented as an effectively non-decryptable encrypted one
+time password.
+
+By default, the one time passwords are valid for 60 seconds, but you can
+change this setting using the OTP keyword in xvp.conf.  In addition,
+although not by default, you can use an OTP keyword option to make each
+one time password valid for a single IP address only: this is the
+address from which the client connected to xvpweb over HTTP/HTTPS, as
+viewed by the Apache web server running xvpweb.  You should turn IP
+checking on, if you can.  However, depending on any intervening proxies,
+caches, load balancers, etc, the IP address that xvpweb pages in PHP see
+the client coming from may not be the same as the address xvp sees the
+VNC connection coming from.  If you have such IP discrepancies, you may
+be able to resolve them using e.g. using the mod_extract_forwarded
+module for Apache (http://www.openinfo.co.uk/apache/), and then turn on
+IP checking in xvp.  The most secure setting in xvp.conf, if you're just
+using xvpweb, and don't have IP address discrepancies, would be:
+
+  OTP REQUIRE IPCHECK ON      (if not using VNC over HTTP(S) tunnelling)
+  OTP REQUIRE IPCHECK HTTP    (if using tunnelling)
+
+possibly with a shorter time window than 60 seconds.
+
+
+Other sources of information
+----------------------------
+
+For more information, see the website:
+
+  http://www.xvpsource.org/
+
+and refer to the manual pages for xvp(8), xvpweb(7), xvpdiscover(8),
+xvpviewer(1), xvp.conf(5) and xvpusers.conf(5), copies of which can also
+be found on the web site.
+
+There is also an xvp users mailing list, and details for how to join
+this can also be found on the web site.
+
+
+Copyright and Acknowledgements
+------------------------------
+
+Copyright (c) 2009-2013 Colin Dean, <colin@xvpsource.org>
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark and XenCenter a trademark of Citrix
+Systems, Inc.  Linux is a registered trademark of Linus Torvalds in the
+U.S. and other countries.  Windows is a registered trademark of
+Microsoft Corporation in the United States and other countries.  All
+other relevant trademarks and copyrights acknowledged.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+The TightVNC versions of all xvp-modified files, and all TightVNC
+documentation files, are included here renamed as *.tightvnc.  For
+TightVNC copyright information, refer to the file README.tightvnc.
+
+The web-based front end includes "XML-RPC for PHP", Copyright (c) 1999,
+2000, 2002 Edd Dumbill.  All rights reserved.  The full copyright notice
+and disclaimer for this can be found in the included file xmlrpc.inc.
+
+The web-based front end also includes the jQuery library, Copyright
+(c) 2010 The jQuery Project, and the jQuery Context Menu Plugin,
+Copyright (c) 2008 A Beautiful Site, LLC.  Both are dual-licensed
+under the GNU General Public License and the MIT License.
+
+Modifications to the Apache 2.2 web server to support tunnelling over
+HTTPS are supplied under the terms of the Apache Software License.
+
+A small part of the source code for xvp and xvpdiscover was based on
+code supplied in the XenServer C SDK 5.0.0, to which the following
+copyright statement applies:
+
+Copyright (c) 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

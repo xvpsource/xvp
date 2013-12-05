@@ -1,0 +1,8 @@
+display:Display user's rights
+password:Change user's password
+vm:Add new virtual machines rights entry for user
+host:Add new server hosts rights entry for user
+remove:Remove an existing rights entry from user
+delete:Delete user
+help:Help
+return:Return to previous menu

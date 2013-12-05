@@ -1,0 +1,185 @@
+#!/bin/bash
+#
+# xvp		Start, stop and manage xvp.
+#
+# chkconfig: 2345 90 10
+# description: Starts and stops VNC Console Proxy Server for XenServer
+# processname: xvp
+# config: /etc/xvp.conf
+# pidfile:/var/run/xvp.pid
+
+### BEGIN INIT INFO
+# Provides: xvp
+# Required-Start: $syslog $network
+# Required-Stop: $syslog $network
+# Default-Start:
+# Default-Stop: 0 1 2 3 4 5 6
+# Short-Description: start and stop xvp
+# Description: xvp is a VNC Console Proxy Server for XenServer
+### END INIT INFO
+
+RETVAL=0
+prog="xvp"
+XVP=/usr/sbin/xvp
+
+# set sysconfig settings
+[ -f /etc/sysconfig/xvp ] && . /etc/sysconfig/xvp
+
+if [ -f /etc/init.d/functions ]; then
+
+#
+# Red Hat style distro
+# --------------------
+#
+
+. /etc/init.d/functions
+LOCK_FILE=/var/lock/subsys/xvp
+RETVAL=0
+
+
+start() {
+	echo -n $"Starting $prog: "
+	daemon $prog $XVPARGS
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && touch $LOCK_FILE
+	return $RETVAL
+}
+
+stop() {
+	echo -n $"Stopping $prog: "
+	killproc $XVP
+	RETVAL=$?
+	echo
+	[ $RETVAL -eq 0 ] && rm -f $LOCK_FILE
+	return $RETVAL
+}	
+
+reload() {
+	echo -n $"Reloading $prog: "
+	killproc $XVP -HUP && killproc $XVP -USR1
+	RETVAL=$?
+	echo
+	return $RETVAL
+}	
+
+dump() {
+	echo -n $"Dumping $prog: "
+	killproc $XVP -USR2
+	RETVAL=$?
+	echo
+	return $RETVAL
+}	
+
+disconnect() {
+	echo -n $"Disconnecting $prog: "
+	killproc $XVP -QUIT
+	RETVAL=$?
+	echo
+	return $RETVAL
+}	
+
+condrestart() {
+	if [ -f $LOCK_FILE ]; then
+	    stop
+	    sleep 3
+	    start
+	fi
+}
+
+showstatus() {
+	status $XVP
+	RETVAL=$?
+	return $RETVAL
+}
+
+elif [ -f /etc/rc.status ]; then
+
+#
+# SuSE style distro
+# -----------------
+#
+
+XVP_PIDFILE=/var/run/xvp.pid
+. /etc/rc.status
+rc_reset
+
+start() {
+	echo -n $"Starting $prog"
+	startproc $XVP $XVPARGS
+	rc_status -v
+}
+
+stop() {
+	echo -n $"Stopping $prog"
+	killproc -p $XVP_PIDFILE -TERM $XVP
+	rc_status -v
+}	
+
+reload() {
+	echo -n $"Reloading $prog"
+	killproc -p $XVP_PIDFILE -HUP $XVP
+	killproc -p $XVP_PIDFILE -USR1 $XVP
+	rc_status -v
+}
+
+dump() {
+	echo -n $"Reloading $prog"
+	killproc -p $XVP_PIDFILE -USR2 $XVP
+	rc_status -v
+}	
+
+disconnect() {
+	echo -n $"Disconnecting $prog"
+	killproc -p $XVP_PIDFILE -QUIT $XVP
+	rc_status -v
+}	
+
+condrestart() {
+	if checkproc -p $XVP_PIDFILE $XVP; then
+	    stop
+	    sleep 3
+	    start
+	fi
+}
+
+showstatus() {
+	echo -n "Checking for ${prog}: "
+	checkproc -p $XVP_PIDFILE $XVP
+	rc_status -v
+}
+
+fi
+
+case "$1" in
+  start)
+  	start
+	;;
+  stop)
+  	stop
+	;;
+  restart)
+	stop
+	sleep 3
+  	start
+	;;
+  reload)
+  	reload
+	;;
+  dump)
+  	dump
+	;;
+  disconnect)
+  	disconnect
+	;;
+  status)
+        showstatus
+	;;
+  condrestart)
+	condrestart
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|status|reload|dump|disconnect|restart|condrestart}"
+	RETVAL=3
+esac
+exit $RETVAL

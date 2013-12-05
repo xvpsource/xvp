@@ -1,0 +1,292 @@
+/*
+ * ios.css - Styles for Xen VNC Proxy PHP Pages on iOS devices
+ *
+ * Copyright (C) 2011, Colin Dean
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License as
+ * published by the Free Software Foundation; either version 2 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ */
+
+div.pool {
+	margin: 10px auto;
+	width: 90%;
+	text-align: center;
+	margin-bottom: 20px;
+}
+
+div.hosts, div.vmsright, div.vmscenter {
+	clear: both;
+	float: none;
+	width: 650px;
+	margin: 0px auto;
+	margin-bottom: 10px;
+	-webkit-border-radius: 6px;
+	border-style: solid;
+	border: 1px solid gray;
+	-webkit-box-shadow: 3px 3px 3px #404040;
+}
+
+img.toggle {
+	width: 18px;
+	height: 18px;
+}
+
+div.pool img.toggle {
+	width: 14px;
+	height: 14px;
+	vertical-align: middle;
+	padding-bottom: 2px;
+}
+
+td.host, td.vm {
+	width: 640px;
+}
+
+th.host {
+	width: 310px;
+
+}
+
+th.vm {
+	width: 310px;
+
+}
+
+.contextMenu li {
+	padding-top: 2px;
+	padding-bottom: 2px;
+}
+
+.contextMenu li.console {
+	padding-top: 6px;
+}
+
+.contextMenu li.console a {
+	background-image: none;
+}
+
+.contextLabel {
+	text-align: center;
+}
+
+body.popup {
+	background-color: #dcdcdc;
+	width: 100%;
+	height: 100%;
+}
+
+body.popup div#main {
+	width: 700px;
+	height: 360px;
+	margin: 0px auto;
+	margin-top: 70px;
+	background-color: white;
+	-webkit-border-radius: 6px;
+	border: 1px solid black;
+	-webkit-box-shadow: 3px 3px 3px #404040;
+}
+
+div.properties {
+	position: relative;
+	float: right;
+}
+
+div.properties button, div.action button {
+	width: 100px;
+}
+
+h1.properties, h1.snapshot {
+	padding-top: 10px;
+}
+
+img.properties {
+	top: 100px;
+	left: 55px;
+}
+
+@media screen and (max-device-width: 480px) and (orientation: portrait) {
+
+	/* iPhone and iPod Touch (including Retina) in portrait */
+
+	body.popup {
+		font-size: 8px;
+	}
+
+	body.popup div#main {
+		margin: 0px auto;
+		margin-top: 2px;
+		width: 98%;
+		height: 100%;
+		padding-bottom: 20px;
+	}
+
+	body.popup form {
+		font-size: 8px;
+	}
+
+	h1#banner {
+		font-size: 24px;
+	}
+
+	div#timestamp {
+		font-size: 12px;
+	}
+
+	td.group {
+		font-size: 8px;
+	}
+
+	form.action select {
+		margin-top: 12px;
+	}
+
+	body.popup select {
+		font-size: 8px;
+		width: 200px;
+		overlap: hidden;
+	}
+
+	h1.properties, h1.snapshot, h1.action {
+		font-size: 10px;
+		text-align: center;
+		margin-bottom: 10px;
+	}
+
+	h1.properties, h1.snapshot {
+		margin-top: 0px;
+	}
+
+	h1.action {
+		margin-top: 10px;
+	}
+
+	table.properties th {
+		padding-left: 5px;
+		padding-right: 5px;
+	}
+
+	table.properties tr {
+		padding-left: 5px;
+		padding-right: 5px;
+	}
+
+	img.properties {
+		top: 10px;
+		left: 10px;
+		width 24px;
+		height: 24px;
+	}
+
+	div.properties {
+		padding-top: 6px;
+		right: 15px;
+	}
+
+	div.properties button, div.action button {
+		font-size: 8px;
+		width: 60px;
+	}
+
+	input.snapshot {
+		margin-left: 10px;
+		width: 100px;
+		font-size: 7px;
+	}
+}
+
+@media screen and (max-device-width: 480px) and (orientation: landscape) {
+
+	/* iPhone and iPod Touch (including Retina) in landscape */
+
+	body.popup {
+		font-size: 6px;
+	}
+
+	body.popup div#main {
+		margin: 0px auto;
+		margin-top: 2px;
+		width: 98%;
+		height: 100%;
+		padding-bottom: 20px;
+	}
+
+	body.popup form {
+		font-size: 6px;
+	}
+
+	h1#banner {
+		font-size: 24px;
+	}
+
+	div#timestamp {
+		font-size: 12px;
+	}
+
+	td.group {
+		font-size: 8px;
+	}
+
+	form.action select {
+		margin-top: 10px;
+	}
+
+	body.popup select {
+		font-size: 6px;
+		width: 220px;
+		overlap: hidden;
+	}
+
+	h1.properties, h1.snapshot, h1.action {
+		font-size: 8px;
+		text-align: center;
+		margin-bottom: 10px;
+	}
+
+	h1.properties, h1.snapshot {
+		margin-top: 0px;
+	}
+
+	h1.action {
+		margin-top: 10px;
+	}
+
+	table.properties th {
+		padding-left: 5px;
+		padding-right: 5px;
+	}
+
+	table.properties tr {
+		padding-left: 5px;
+		padding-right: 5px;
+	}
+
+	img.properties {
+		top: 10px;
+		left: 10px;
+		width 20px;
+		height: 20px;
+	}
+
+	div.properties {
+		padding-top: 6px;
+		right: 15px;
+	}
+
+	div.properties button, div.action button {
+		font-size: 6px;
+		width: 40px;
+	}
+
+	input.snapshot {
+		margin-left: 10px;
+		width: 100px;
+		font-size: 6px;
+	}
+}

@@ -1,0 +1,225 @@
+.TH  "XVP" "8" "27 December 2010" "Colin Dean" "Colin Dean"
+.SH NAME
+xvp \- A VNC Console Proxy Server for Citrix(R) XenServer and XCP
+
+.SH SYNOPSIS
+.PP
+\fBxvp\fR [ \fBproxy-options\fR | \fBpassword-options\fR ]
+
+.SH DESCRIPTION
+.B xvp
+(standing for Xen VNC Proxy) is a proxy server providing
+password-protected VNC-based access to the consoles of virtual machines
+hosted on Citrix XenServer and Xen Cloud Platform.
+.PP
+Relying on a simple configuration file, it listens either on multiple
+ports, one per virtual machine, or on a single multiplexing port (or
+both).  It forwards VNC sessions to the appropriate XenServer host(s).
+It uses a separate VNC password for each virtual machine, as specified
+in encrypted form in the configuration file.
+.PP
+Standard VNC clients such as \fBvncviewer\fR(1) can connect to the
+appropriate port for the virtual machine they wish to access, and for
+each client a separate \fBxvp\fR process is forked to authenticate the
+client, connect to the appropriate XenServer host, and proxy the data
+traffic.
+.PP
+A custom Java-based VNC client, \fBxvpviewer\fR(1), is supplied with
+xvp.  This is based on the TightVNC viewer, but with xvp-specific
+additions to allow virtual machine shutdown, reboot and reset to be
+initiated from the viewer.  Also supplied is a web-based front end,
+\fBxvpweb\fR(7), providing convenient access to all of the features of
+\fBxvp\fR(8) and \fBxvpviewer\fR(1), with facilities for restricting
+which users can manage particular virtual machines or groups of
+virtual machines.
+.PP
+When used in conjunction with \fBxvpweb\fR(7), \fBxvp\fR(8) makes use
+of time-limited, and optionally IP address-restricted, one time
+passwords, for improved security.
+
+.SH PROXY OPTIONS
+.TP
+.B -c filename | --configfile filename
+Specifies the name of the configuration file, defaults to /etc/xvp.conf.
+.TP
+.B -l filename | --logfile filename
+Specifies the name of the log file, defaults to /var/log/xvp.log.  To
+use standard output, specify "-", to discard, specify /dev/null.
+.TP
+.B -p filename | --pidfile filename
+Specifies the name of the file used to store the pid of the master
+process, defaults to /var/run/xvp.pid.
+.TP
+.B -r seconds | --reconnect seconds
+If the virtual machine is shut down, rebooted, or migrated to another
+host, \fBxvp\fR will lose its connection to the console.  This option
+can be used to determine what happens in that situation.
+
+Specifying a positive value here will cause \fBxvp\fR to try to
+reconnect seamlessly after a delay of that number of seconds.  You may
+need to experiment with this value, but sensible delays are usually in
+the range 5 to 30 seconds.  It is not guaranteed that reconnection will
+leave the client window in a sensible state: this may not be possible if
+the console was lost in the middle of an exchange of VNC protocol
+messages.  If not specified, a default value of 20 seconds is used.
+
+Alternatively, a negative value may be specified.  In this case,
+reconnection is not attempted, but the client connection will be
+maintained for minus that number of seconds after loss of connection to
+the console.  This can be useful in preventing the client window from
+vanishing immediately.
+
+If you specify a value of 0, \fBxvp\fR will drop a client connection
+immediately if it loses the connection to the corresponding virtual
+machine's console, and not attempt reconnection.
+.TP
+.B -n | --nodaemon
+Normally, \fBxvp\fR backgrounds itself on startup.  This option prevents
+this, and causes it to run in the foreground.
+.TP
+.B -v | --verbose
+This option increases the detail of logging output.
+.TP
+.B -t | --trace
+This option is provided for development testing purposes, and is not
+intended for production use.  It enables some packet trace logging, and
+is only effective if the \fB-v\fR option is also used.
+
+.SH PASSWORD OPTIONS
+.TP
+.B -e | --encrypt
+Encrypts a password into a form suitable for using as a virtual machine
+VNC password in the configuration file.  If standard input is a
+terminal, the password is prompted for, without echoing.  The password
+must be between 1 and 8 characters long, and contain only non-space
+ASCII characters.
+.TP
+.B -x | --xencrypt
+Encrypts a password into a form suitable for using as pool manager
+password in the configuration file.  If standard input is a
+terminal, the password is prompted for, without echoing.  The password
+must be between 1 and 16 characters long.
+
+.SH CONFIGURATION
+.B xvp
+reads a plain text configuration file to determine which virtual
+machines to serve on which ports, and to specify (encrypted) passwords.
+See \fBxvp.conf\fR(5) for details of the file format.  The associated
+\fBxvpdiscover\fR(8) program can be used to interrogate a XenServer pool
+and output a configuration file in the format of \fBxvp.conf\fR(5).
+
+.SH CONTROLLING XVP
+.B xvp
+responds to various signals in order to perform certain operations.
+These should be sent to the master \fBxvp\fR process.  This is
+identifiable using \fBps\fR(1), as "xvp: master", but it is safest
+to send a signal using:
+.IP
+.nf
+kill -SIGNAL \`cat /var/run/xvp.pid\`
+.fi
+.TP
+.B SIGTERM, SIGINT
+Causes \fBxvp\fR to terminate its child processes (and hence all open
+connections) and then to exit itself.
+.TP
+.B SIGHUP
+The log file is closed and reopened, intended to be used when rotating
+logs.
+.TP
+.B SIGUSR1
+Causes the configuration file to be re-read. Any existing client
+connections are unaffected.
+.TP
+.B SIGUSR2
+Writes lines to the log file, one per existing connection, summarising
+which client hosts are currently connected to which virtual machines.
+.TP
+.B SIGQUIT
+Causes \fBxvp\fR to terminate its child processes (and hence all open
+connections), but leaves the master process running.
+.SH FILES
+.PD 0
+.TP
+.I /etc/xvp.conf
+Default configuration file.
+.TP
+.I /var/log/xvp.log
+Default log file.
+.TP
+.I /var/run/xvp.pid
+Default location for file containing the process id of \fBxvp\fR.
+.PD
+
+.SH SECURITY CONSIDERATIONS
+All data between \fBxvp\fR and XenServer hosts is encrypted using
+SSL. However, the connection between clients and \fBxvp\fR is not
+encrypted, except for password validation, which uses the standard VNC
+challenge-response authentication mechanism.  For improved security, you
+may wish to tunnel client-side traffic using \fBssh\fR(1), and/or employ
+a firewall.
+
+It would be wise to restrict access to the configuration file so that
+only the user who will run \fBxvp\fR can read it.  The passwords are
+encrypted using DES, but anybody with access to the source code of
+\fBxvp\fR could easily figure out how to decrypt them.
+
+Be aware that, if somebody is already logged in to the console of a
+virtual machine, no additional password other than the VNC one is needed
+to gain access to it by another client.  In the case of XenServer hosts,
+the console is effectively always logged in, so allowing VNC access to
+hosts may pose a particular security risk.
+
+.SH "SEE ALSO"
+\fBxvp.conf\fR(5),
+\fBxvpdiscover\fR(8),
+\fBxvptag\fR(8),
+\fBxvpviewer\fR(1),
+\fBxvpweb\fR(7),
+\fBvncviewer\fR(1),
+\fBssh\fR(1)
+
+.SH LIMITATIONS
+Within each pool in the configuration file, virtual machine names must
+be distinct. Shared or unshared VNC options specified by the client are
+ignored: all sessions may be shared (this is how XenServer implements
+them).
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2009-2010 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

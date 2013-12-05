@@ -1,0 +1,166 @@
+.TH  "XVPWEB" "7" "04 November 2012" "Colin Dean" "Colin Dean"
+.SH NAME
+xvpweb \- A web-based interface to Citrix(R) XenServer and XCP
+
+.SH SYNOPSIS
+.PP
+.B xvpweb
+is a PHP and Java based web interface, providing a status view of
+XenServer and Xen Cloud Platform pools, hosts and virtual machines, and
+easy facilities to view virtual machine consoles and to boot, shutdown,
+reboot, suspend, resume, snapshot, revert and migrate virtual machines
+and manage their virtual DVD drives.  It makes use of \fBxvp\fR(8)
+(running on the same machine as the web server) and \fBxvpviewer\fR(1)
+(supplied in applet form).  By making use of a database or flat file, it
+can be made to restrict which users can manage particular virtual
+machines or groups of virtual machines.
+
+Screenshots of \fBxvpweb\fR(7) can be found on the xvp project web site,
+at \fBwww.xvpsource.org\fR.
+
+.SH DESCRIPTION
+.PP
+.B xvpweb
+Is supplied as a single directory tree, containing PHP scripts and PHP
+include files, a Java applet as a JAR file, plus style sheets and
+images.  The directory tree should be installed in an appropriate
+location for the web server software (Apache 2.2 is recommended), and
+the web server configured to serve the tree as an appropriate URL,
+e.g. \fB/xvpweb\fR.
+
+None of the supplied files should need to be edited, as the behaviour is
+driven by the configuration file \fBxvp.conf\fR(5), and optionally
+\fBxvpusers.conf\fR(5) or an equivalent relational database table, and
+\fBxvprights.conf\fR(5).
+
+The Java applet is based on the TightVNC viewer, but with xvp-specific
+additions to allow virtual machine shutdown, reboot and reset to be
+initiated from the viewer, and to provide mouse-wheel support.
+
+The list of XenServer hosts and virtual machines to display is read from
+\fBxvp.conf\fR(5).  This can be created manually or using
+\fBxvpdiscover\fR(8).  The state of the hosts and virtual machines is
+deduced by the PHP scripts interrogating XenServer directly using
+XML-RPC and the XenServer API.
+
+The console viewer does not connect directly to XenServer, instead it
+connects to \fBxvp\fR(8), running on the same machine as the web server.
+
+.SH USER AUTHENTICATION AND AUTHORISATION
+When accessing XenServer via this web-based front end, users do not need
+to supply VNC passwords: these are automatically retrieved from
+\fBxvp.conf\fR(5) by \fBxvpweb\fR(7) and passed to \fBxvp\fR(8).
+However, the web interface can restrict which users can view it, and
+which users can boot virtual machines and view their consoles from it.
+To enable this:
+
+1. The web server must be configured to authenticate users, so that the
+variable \fB$_SERVER['REMOTE_USER']\fR is available to PHP.  The user's
+passwords need to be be checked by the web server (for example, by using
+HTTP basic or digest authentication, with passwords stored in .htaccess
+files or an LDAP directory).
+
+2. Note that the passwords set in \fBxvp.conf\fR(5) are per VM, not per
+user, are unrelated to the web server passwords, and do not need to be
+supplied by users when using the web front end.  However, you need to
+ensure that the front end and \fBxvp\fR(8) are both looking at either
+the same \fBxvp.conf\fR(5) file, or separate ones containing matching VNC
+and XenServer passwords.
+
+3. The file xvp.conf read by \fBxvpweb\fR end must contain a DATABASE
+line, of the form:
+.PP
+.RS
+\fBDATABASE dsn [ username [ password ] ]\fR
+.RE
+.PP
+where dsn is a DSN for connecting to an authorisation database.  The
+format of the DSN is as supported by the PDO class in PHP.  If needed to
+login to the database server, a username should be specified, and
+optionally a password (encrypted using the \fB-x\fR option of
+\fBxvp\fR(8).)  If there is no DATABASE line in \fBxvp.conf\fR(5), then
+full control of all virtual machines shown by the web front end is
+granted to anybody who can access its web pages via the web server.
+
+As an alternative to using a database, a text configuration file can be
+used, by specifying it in \fBxvp.conf\fR(5) using a line such as:
+.PP
+.RS
+\fBDATABASE xvp:/etc/xvpusers.conf\fR
+.RE
+.PP
+Both the required database table schema and the alternative text
+configuration file format are described in \fBxvpusers.conf\fR(5).
+
+.SH OTHER SECURITY CONSIDERATIONS
+Before deploying any of the components of the xvp suite, ensure you
+understand and have addressed the security implications.
+
+If there is no DATABASE line in \fBxvp.conf\fR(5), then full control of
+all virtual machines shown by the web front end is granted to anybody
+who can access its web pages via the web server.
+
+Please read the "Security Considerations" section in the README file,
+which is included with the software, and also available on the xvp
+project web site at \fBwww.xvpsource.org\fR.
+
+.SH "SEE ALSO"
+\fBxvp\fR(8),
+\fBxvp.conf\fR(5),
+\fBxvpusers.conf\fR(5),
+\fBxvprights.conf\fR(5),
+\fBxvpdiscover\fR(8),
+\fBxvpviewer\fR(1)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2009-2012 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+The TightVNC versions of all xvp-modified files, and all TightVNC
+documentation files, are included with \fBxvpweb\fR(7) renamed as
+*.tightvnc.  For TightVNC copyright information, refer to the supplied
+file README.tightvnc.
+
+The web-based front end includes "XML-RPC for PHP", Copyright \(co 1999,
+2000, 2002 Edd Dumbill.  All rights reserved.  The full copyright notice
+and disclaimer for this can be found in the included file xmlrpc.inc.
+
+The web-based front end also includes the jQuery library, Copyright
+\(co 2010 The jQuery Project, and the jQuery Context Menu Plugin,
+Copyright \(co 2008 A Beautiful Site, LLC.  Both are dual-licensed
+under the GNU General Public License and the MIT License.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

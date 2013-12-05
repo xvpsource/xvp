@@ -1,0 +1,5 @@
+configure_proxy_updates:Configure proxy setting for updates
+configure_xvp_updates:Check for xvp updates now
+configure_linux_updates:Check for Linux updates now
+configure_schedule_updates:Schedule regular checks for updates
+return:Finish managing updates

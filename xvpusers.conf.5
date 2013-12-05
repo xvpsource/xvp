@@ -1,0 +1,250 @@
+.TH  "XVPUSERS.CONF" "5" "08 January 2011" "Colin Dean" "Colin Dean"
+.SH NAME
+xvpusers.conf \- The user configuration file for xvpweb
+
+.SH SYNOPSIS
+The \fIxvpusers.conf\fR file is a user rights configuration file for
+\fBxvpweb\fR(7), the web based front end for \fBxvp\fR(8).  There is
+also a corresponding relational database schema, also described here.
+Either may be used to restrict which users can view and manage
+particular virtual machines or groups of virtual machines.
+
+.SH USER AUTHENTICATION AND AUTHORISATION
+When accessing XenServer or Xen Cloud Platform virtual machines via the
+web-based front end, users do not need to supply VNC passwords: these
+are automatically retrieved from \fBxvp.conf\fR(5) by \fBxvpweb\fR(7)
+and passed to \fBxvp\fR(8).  However, the web interface can restrict
+which users can view it, and which users can perform operations such as
+booting virtual machines and access their consoles from it.
+
+By default, any user who can access \fBxvpweb\fR has full access to all
+virtual machines.  To enforce per-user access restrictions:
+
+1. The web server must be configured to authenticate users, so that the
+variable \fB$_SERVER['REMOTE_USER']\fR is available to PHP as the user's
+name.  The user's passwords need to be be checked by the web server (for
+example, by using HTTP basic or digest authentication, with passwords
+stored in .htaccess or .htdigest files or in an LDAP directory).  The
+user names referred to below are the ones passed to PHP by the web
+server.
+
+2. Note that the passwords set in \fBxvp.conf\fR(5) are per VM, not per
+user, are unrelated to the web server passwords, and do not need to be
+supplied by users when using the web front end.  However, you need to
+ensure that the front end and \fBxvp\fR(8) are both looking at either
+the same \fBxvp.conf\fR(5) file, or separate ones containing matching VNC
+and XenServer passwords.
+
+3. Choose whether to maintain user rights in a text file or in a
+relational database.  With small numbers of users, or for testing
+purposes, a text file is ideal, but with larger numbers of users in a
+production environment, using a database such as MySQL, PostgreSQL or
+SQLite would probably give better performance.
+
+.SH USING A TEXT FILE
+A text configuration file can be used to restrict user rights, by
+specifying it in \fBxvp.conf\fR(5) using a line such as:
+.PP
+.RS
+\fBDATABASE xvp:/etc/xvpusers.conf\fR
+.RE
+.PP
+
+The \fBxvpusers.conf\fR file should contain lines of the form:
+.PP
+.RS
+\fBusername:poolname:groupname:vmname:rights\fR
+.RE
+.PP
+The names of pools, groups and virtual machines should correspond to
+those specified in \fBxvp.conf\fR(8).  Any value can be wildcarded by
+specifying it as "*".  Note that if virtual machines are listed by UUID
+instead of name label in \fBxvp.conf\fR(5), you must use UUIDs here too.
+
+The value for \fBrights\fR can be any one of the following:
+.TP
+.B none
+The relevant virtual machine(s) will be invisible and inaccessible to
+the user in the web interface.
+.TP
+.B list
+The relevant virtual machine(s) will be included in those shown to the
+user in the web interface, but the user will not be able to access their
+consoles or perform power operations on them.
+.TP
+.B read
+The same as for \fBlist\fR, except the user will be able to view the
+consoles (although not send keyboard or mouse input to them, and not
+perform power operations), and view the properties of the virtual
+machine(s).
+.TP
+.B write
+The same as for \fBread\fR, except the user can send keyboard and mouse
+input (but not perform power operations).
+.TP
+.B control
+The same as for \fBwrite\fR, except the user can perform power
+operations that don\'t specify a particular server host or DVD drive.
+.TP
+.B all
+The user can perform all possible operations, including those that
+specify particular server hosts (e.g. booting or resuming a virtual
+machine on a specific host, including booting in recovery mode, or
+migrating it to a specific host) or DVD drives (inserting or
+ejecting).
+.PP
+If more than one line matches, the one with the most rights takes
+precedence.  The order lines appear in the file is not important.
+
+For example, to grant all users \fBlist\fR rights to all virtual
+machines in all pools, and to allow user "fred" to fully control all
+virtual machines in the "Web Servers" group of the "Production Pool"
+pool:
+.PP
+.RS
+\fB*:*:*:*:list\fR
+.RE
+.RS
+\fBfred:Production Pool:Web Servers:*:control\fR
+.RE
+.PP
+Comments can be included in this file using "#".
+
+.SH USING A DATABASE
+In order to use a database instead of a text file, the file
+\fBxvp.conf\fR(5) must instead contain a DATABASE line of the form:
+.PP
+.RS
+\fBDATABASE dsn [ username [ password ] ]\fR
+.RE
+.PP
+where dsn is a DSN for connecting to an authorisation database.  The
+format of the DSN is as supported by the PDO class in PHP.  If needed to
+login to the database server, a username should be specified, and
+optionally a password (encrypted using the \fB-x\fR option of
+\fBxvp\fR(8).)
+
+For example, to use a MySQL database named xvpwebusers, on MySQL server
+host named mydbserver, the DSN should be:
+.PP
+.RS
+\fBmysql:host=mydbserver;dbname=xvpwebusers\fR
+.RE
+.PP
+The database must contain a table named "xvp_users", with a schema of
+the form:
+.IP
+.nf
+\fBCREATE TABLE xvp_users (
+    username  varchar(64) NOT NULL,
+    poolname  varchar(64) NOT NULL,
+    groupname varchar(64) NOT NULL,
+    vmname    varchar(64) NOT NULL,
+    rights    varchar(64) NOT NULL
+);\fR
+.fi
+.PP
+Each record (row) in the table is interpreted in effectively the same
+way as each line when using a text file, as described above.
+
+If the database system supports \fBenum\fR types, you may wish to use
+an alternative schema:
+.IP
+.nf
+\fBCREATE TABLE xvp_users (
+    username  varchar(64) NOT NULL,
+    poolname  varchar(64) NOT NULL,
+    groupname varchar(64) NOT NULL,
+    vmname    varchar(64) NOT NULL,
+    rights    enum('list','read','write','control','all') NOT NULL
+);\fR
+.fi
+.PP
+This works, for instance, using MySQL, but not using SQLite.
+
+.SH CONTROLLING ACCESS TO SERVER HOSTS
+By default, \fBxvpweb\fR(7) shows the names and status of all server
+hosts in any pool to which the user has access to one or more VMs.  You
+can hide the hosts from the user by adding a line to the
+\fBxvpusers.conf\fR file (or a corresponding record if using a
+database), with both groupname and vmname set to '-', and specifying
+rights as 'none'.  For example:
+.PP
+.RS
+\fBfred:Production Pool:-:-:none\fR
+.RE
+.PP
+If you use 'list' instead of 'none', then the hosts are shown, as is the
+case if there is no such line at all.  Other rights values are currently
+treated as equivalent to 'list', but may grant permission to perform
+additional operations on hosts in future releases.
+
+.SH OTHER SECURITY CONSIDERATIONS
+Before deploying any of the components of the xvp suite, ensure you
+understand and have addressed the security implications.
+
+If there is no DATABASE line in \fBxvp.conf\fR(5), then full control of
+all virtual machines shown by the web front end is granted to anybody
+who can access its web pages via the web server.
+
+It is possible to fine tune the relationship between the rights users
+have and the operations they may perform.  For instance, to raise the
+rights needed to suspend virtual machines, from \fBcontrol\fR to
+\fBall\fR, or to lower the rights needed to connect ISO images as
+virtual DVD drives from \fBall\fR to \fBcontrol\fR or to \fBwrite\fR.
+Refer to the \fBxvprights.conf\fR(5) manual page for details.
+
+Please read the "Security Considerations" section in the README file,
+which is included with the software, and also available on the xvp
+project web site at \fBwww.xvpsource.org\fR.
+
+.SH CHARACTER ENCODING
+Names of pools, hosts, groups and virtual machines may contain non-ASCII
+characters, provided they are encoded using UTF-8.
+
+.SH "SEE ALSO"
+\fBxvp.conf\fR(5),
+\fBxvprights.conf\fR(5),
+\fBxvp\fR(8),
+\fBxvpweb\fR(7),
+\fBxvpdiscover\fR(8),
+\fBxvpviewer\fR(1)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2009-2011 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

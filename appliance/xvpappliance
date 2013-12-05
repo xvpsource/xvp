@@ -1,0 +1,2520 @@
+#!/bin/bash
+#
+# xvpappliance - configuration program for xvpappliance VM
+#
+# Copyright (C) 2010-2012, Colin Dean
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 2 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+#
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+# force Bash > 3.1 to allow quoted regular expressions with =~ operator
+shopt -s compat31 2>/dev/null
+
+main()
+{
+    i_am_root || {
+	echo "Only root can use this program" 1>&2
+	exit 1
+    }
+
+    [ -f /etc/redhat-release ] || {
+	echo "This program only runs on Red Hat based distributions" 1>&2
+	exit 1
+    }
+
+    set_globals
+
+    case "$1" in
+	--install)
+	    install_appliance "$2"
+	    return 0
+	    ;;
+	--uninstall)
+	    uninstall_appliance
+	    return 0
+	    ;;
+	--startup)
+	    rebadge_appliance
+	    repatch_httpd_tunnel
+	    [ -f ${XVP_CONF_FILE} ] && return 0
+	    ;;
+	--rediscover)
+	    MODE=batch
+	    configure_xvp_pools
+	    return
+	    ;;
+	--update)
+	    MODE=batch
+	    configure_xvp_updates
+	    return
+	    ;;
+	*)
+	    rebadge_appliance
+	    ;;
+    esac
+
+    display_banner
+
+    [ ! -f ${XVP_CONF_FILE} ] && bootstrap_appliance
+
+    while :; do
+	select_from_menu main.menu run "Main menu"
+    done
+}
+
+install_appliance()
+{
+    local rcfile=/etc/rc.d/rc.local tmpfile=/tmp/xvpappliance.rc.$$
+
+    # If upgrading, set_globals will have got this wrong (2 RPMs installed)
+    [ -z "$1" ] || XVP_APPLIANCE_VERSION="$1"
+
+    rebadge_appliance "$1"
+
+    grep -v xvpappliance $rcfile >$tmpfile
+    echo '[ -f /usr/sbin/xvpappliance ] && /usr/sbin/xvpappliance --startup' >>$tmpfile
+    cmp -s $tmpfile $rcfile || cp $tmpfile $rcfile
+    rm -f $tmpfile
+
+    if [ -f ${XVP_VIEWER_CONF_FILE} ]; then
+	# to fix pre 1.15.1 which had ".jar" instead of ".jar*" in file 
+	grep -qs 'VncViewer.jar\*' ${XVP_VIEWER_CONF_FILE} || rm -f ${XVP_VIEWER_CONF_FILE}
+    fi
+
+    if [ -f ${XVP_WEB_CONF_FILE} -a ! -f ${XVP_VIEWER_CONF_FILE} ]; then
+	# upgrade from pre 1.13.0 - enable single sign-on
+	create_xvp_viewer_conf
+	service httpd condrestart
+    fi
+}
+
+uninstall_appliance()
+{
+    local rcfile=/etc/rc.d/rc.local tmpfile=/tmp/xvpappliance.rc.$$
+
+    unbadge_appliance
+
+    grep -v xvpappliance $rcfile >$tmpfile
+    cmp -s $tmpfile $rcfile || cp $tmpfile $rcfile
+    rm -f $tmpfile
+}
+
+rebadge_appliance()
+{
+    local relfile=/etc/redhat-release tmpfile=/tmp/xvpappliance.release.$$
+    local xescript=/etc/init.d/xe-linux-distribution
+    local version=$1
+
+    [ -f $relfile ] || return 0
+    [ -z "$version" ] && version=${XVP_APPLIANCE_VERSION}
+
+    if grep -qsv "xvpappliance $version" $relfile; then
+	# this is a hack to tell xvpweb this machine is an xvpappliance
+	echo $(head -1 $relfile | sed -e 's/ (xvpappliance .*$//') "(xvpappliance $version)" >$tmpfile
+	tail -n +2 $relfile >>$tmpfile
+	cmp -s $tmpfile $relfile || {
+	    cp $tmpfile $relfile
+	    [ -f $xescript ] && $xescript restart >/dev/null 2>&1
+	}
+	rm -f $tmpfile
+    fi
+}
+
+unbadge_appliance()
+{
+    local relfile=/etc/redhat-release tmpfile=/tmp/xvpappliance.release.$$
+    local xescript=/etc/init.d/xe-linux-distribution
+
+    [ -f $relfile ] || return 0
+
+    if grep -qs "xvpappliance" $relfile; then
+	sed -e 's/ (xvpappliance .*$//' $relfile >$tmpfile
+	tail -n +2 $relfile >>$tmpfile
+	cmp -s $tmpfile $relfile || {
+	    cp $tmpfile $relfile
+	    [ -f $xescript ] && $xescript restart >/dev/null 2>&1
+	}
+	rm -f $tmpfile
+    fi
+}
+
+bootstrap_appliance()
+{
+    BOOTSTRAPPING=true
+
+    cat <<EOF
+
+This appliance appears to be unconfigured.
+
+Please answer the questions below to configure it for use.
+
+EOF
+
+    # change root password iff appliance looks fully unconfigured
+    grep -qs '^HOSTNAME=' /etc/sysconfig/network  || passwd root
+
+    configure_timezone
+    configure_network
+    configure_email
+    configure_proxy_updates
+    configure_schedule_updates
+    configure_web_server
+    configure_xvp
+
+    BOOTSTRAPPING=false
+
+    cat <<EOF
+
+Basic configuration complete.
+
+Users may now access the web interface at:
+
+    http://$(hostname -f)
+
+If you wish to change anything, please use the menu items below.
+
+After you quit, you can see this menu again by running:
+
+    /usr/sbin/xvpappliance
+
+For further assistance, visit the xvp website at:
+
+    http://www.xvpsource.org
+EOF
+
+    prompt_for_continue
+}
+
+unconfigure_appliance()
+{
+    local service
+    local sslkey=/etc/pki/tls/private/localhost.key
+    local sslcrt=/etc/pki/tls/certs/localhost.crt
+
+    cat <<EOF
+
+This will delete network and email settings and completely remove all
+xvp-related configuration files: if you have customised these, you will
+lose your customisations.  It will also reset the appliance root password
+to "xvpappliance", and empty /tmp and all the log files in /var/log.
+
+EOF
+
+    prompt_for_no "Are you sure you want to do this" && return 0
+
+    check_local_console || return 0
+
+    for service in xvp httpd sendmail yum-updatesd; do
+	service $service stop
+	chkconfig $service off >/dev/null 2>&1
+    done
+
+    if [ -f ${sslkey}.xvpappliance -a -f ${sslcrt}.xvpappliance ]; then
+	mv ${sslkey}.xvpappliance ${sslkey}
+	mv ${sslcrt}.xvpappliance ${sslcrt}
+    fi
+
+    rm -f ${XVP_CONF_FILE}
+    rm -f ${XVP_POOL_CONF_PREFIX}*.pool
+    rm -f ${XVP_USERS_CONF_FILE}
+    rm -f ${XVP_RIGHTS_CONF_FILE}
+    rm -f ${XVP_USERS_DIGEST_FILE}
+    rm -f ${XVP_WEB_CONF_FILE}
+    rm -f ${XVP_VIEWER_CONF_FILE}
+    rm -f ${XVP_LDAP_CONF_FILE}
+
+    rm -f /root/.forward /root/.bash_history
+    rm -rf /etc/mail/auth
+    [ -f /etc/mail/sendmail.mc.xvpappliance ] && \
+	mv /etc/mail/sendmail.mc.xvpappliance /etc/mail/sendmail.mc
+    [ -f /etc/mail/sendmail.cf.xvpappliance ] && \
+	mv /etc/mail/sendmail.cf.xvpappliance /etc/mail/sendmail.cf
+    
+    grep -v '^proxy=' /etc/yum.conf >/tmp/xvpappliance.yum.$$
+    cp /tmp/xvpappliance.yum.$$ /etc/yum.conf
+    [ -f /etc/yum/yum-updatesd.conf.xvpappliance ] && \
+	mv /etc/yum/yum-updatesd.conf.xvpappliance /etc/yum/yum-updatesd.conf
+
+    echo "xvpappliance" | passwd --stdin root
+
+    rm -f /etc/sysconfig/network-scripts/ifcfg-eth0
+    egrep -v '^(HOSTNAME|GATEWAY)=' /etc/sysconfig/network \
+	>/tmp/xvpappliance.network.$$
+    cp /tmp/xvpappliance.network.$$ /etc/sysconfig/network
+    rm /etc/resolv.conf
+
+    cat <<EOF >/etc/hosts
+# Do not remove the following line, or various programs
+# that require network functionality will fail.
+127.0.0.1		xvpappliance localhost.localdomain localhost
+::1		localhost6.localdomain6 localhost6
+EOF
+
+    rm -rf /tmp/*
+    find /var/log -type f -exec cp /dev/null '{}' \;
+
+    crontab -r 2>/dev/null
+    hostname xvpappliance
+
+    rm -rf /root/.ssh /etc/ssh/*key*
+    rm -f /etc/sysconfig/xvpappliance
+
+    ifconfig eth0 down 2>/dev/null
+    service sshd stop
+    service network restart
+
+    cat <<EOF
+
+Unconfiguration complete.
+
+To configure again, run:
+
+    /usr/sbin/xvpappliance
+
+EOF
+
+    quit
+}
+
+# -----------------------------------------------------------------------
+
+quit()
+{
+    rm -rf /tmp/xvpappliance.*.$$
+    exit 0
+}
+
+set_globals()
+{
+    local release="unrecognised" arch=$(uname -m)
+
+    BOOTSTRAPPING=false
+    MODE=interactive
+    XVP_RESOURCE_DIR="/usr/share/xvp"
+    XVP_CONF_FILE="/etc/xvp.conf"
+    XVP_POOL_CONF_PREFIX="/etc/xvp-"
+    XVP_USERS_CONF_FILE="/etc/xvpusers.conf"
+    XVP_RIGHTS_CONF_FILE="/etc/xvprights.conf"
+    XVP_USERS_DIGEST_FILE="/etc/xvpusers.digest"
+    XVP_WEB_CONF_FILE="/etc/httpd/conf.d/xvpweb.conf"
+    XVP_VIEWER_CONF_FILE="/etc/httpd/conf.d/xvpweb-viewer.conf"
+    XVP_LDAP_CONF_FILE="/etc/httpd/conf.d/zzz-xvpweb-ad.conf"
+    XVP_DIGEST_REALM="xvpweb"
+    APACHE_GROUP="apache"
+
+    case "$arch" in
+	i*86)
+	    arch="i386"
+	    APACHE_MODULE_DIR=/usr/lib/httpd/modules
+	    ;;
+	*)
+	    APACHE_MODULE_DIR=/usr/lib64/httpd/modules
+	    ;;
+    esac
+
+    if [[ "$(head -1 /etc/redhat-release)" =~ "^(.*) release ([0-9]+)" ]]; then
+	case "${BASH_REMATCH[1]}" in
+	    Fedora*)
+		release="fc${BASH_REMATCH[2]}"
+		;;
+	    Red*|CentOS*)
+		release="el${BASH_REMATCH[2]}"
+		;;
+	    *)
+		release="unrecognised"
+		;;
+	esac
+    fi
+
+    XVP_PACKAGE_URL="http://www.xvpsource.org/xvp-packages-1.${release}.${arch}"
+
+    [ -f /etc/sysconfig/xvpappliance ] && . /etc/sysconfig/xvpappliance
+
+    umask 077
+
+    # Wrong during upgrade RPM install, fixed up in install_appliance
+    XVP_APPLIANCE_VERSION=$(rpm -q xvpappliance 2>/dev/null)
+    if [ $? -eq 0 ]; then
+	XVP_APPLIANCE_VERSION=${XVP_APPLIANCE_VERSION/xvpappliance-/}
+    else
+	XVP_APPLIANCE_VERSION="unknown"
+    fi
+}
+
+i_am_root()
+{
+    [ $(id -u) -eq 0 ] && return 0 || return 1
+}
+
+display_banner()
+{
+    cat <<EOF
+
+                 Configuration Program for xvpappliance
+                 --------------------------------------
+
+                            Version $XVP_APPLIANCE_VERSION
+EOF
+}
+
+about_program()
+{
+    cat <<EOF
+
+This program is the configuration script for the xvpappliance Xen VM
+
+Copyright (C) 2010-2012, Colin Dean
+
+For more information about xvp, visit the web site:
+
+    www.xvpsource.org
+
+Currently installed xvp packages:
+
+EOF
+
+    rpm -qa 'xvp*' | sed -e 's/^/    /'
+
+    prompt_for_continue
+    return
+}
+
+# -----------------------------------------------------------------------
+
+title_case()
+{
+    local line word first rest
+
+    for word in $*; do
+	first=$(echo ${word:0:1} | tr '[a-z]' '[A-Z]')
+	rest=${word:1}
+	line="$line ${first}${rest}" 
+    done
+    echo $line
+}
+
+prompt_for_continue()
+{
+    local dummy
+
+    echo -ne "\nPress Enter to continue ..."
+    read dummy
+}
+
+prompt_for_yes()
+{
+    local prompt="$*? [y]: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	case "$answer" in
+	    ""|y*|Y*)
+		return 0
+		;;
+	    n*|N*)
+		return 1
+		;;
+	esac
+	prompt="Please answer 'y' or 'n': "
+    done
+}
+
+prompt_for_no()
+{
+    local prompt="$*? [n]: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	case "$answer" in
+	    ""|n*|N*)
+		return 0
+		;;
+	    y*|Y*)
+		return 1
+		;;
+	esac
+	prompt="Please answer 'y' or 'n': "
+    done
+}
+
+is_uuid()
+{
+    [[ "$*" =~ "^[0-9a-fA-F]+-[0-9a-fA-F]+-[0-9a-fA-F]+-[0-9a-fA-F]+-[0-9a-fA-F]+$" ]]
+}
+
+is_ipv4()
+{
+    local i
+
+    [[ "$*" =~ '^([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)$' ]] || return 1
+
+    for i in 1 2 3 4; do
+	[ ${BASH_REMATCH[$i]} -lt 256 ] || return 1
+    done
+
+    return 0
+}
+
+prompt_for_ipv4()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	if is_ipv4 "$answer"; then
+	    _answer=$answer
+	    return
+	fi
+	prompt="Please answer in IPv4 dotted notation (n.n.n.n): "
+    done
+}
+
+prompt_for_fqdn()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	if [[ "$answer" =~ '^[0-9a-z][-0-9a-z]*\.[0-9a-z][-0-9a-z\.]*$' ]]; then
+	    _answer=$answer
+	    return
+	fi
+	prompt="Please enter a name including domain name: "
+    done
+}
+
+prompt_for_proxy()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	if [[ "$answer" =~ '^[a-z]+://[0-9a-z][-0-9a-z\.:]*$' ]]; then
+	    _answer=$answer/
+	    return
+	fi
+	if [[ "$answer" =~ '^[a-z]+://[0-9a-z][-0-9a-z\.:]*/$' ]]; then
+	    _answer=$answer
+	    return
+	fi
+	prompt="Please enter a URL, e.g. 'http://proxy.mydomain.com:8080' : "
+    done
+}
+
+prompt_for_email()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	if [[ "$answer" =~ '^[^@,;:/ "]+@[^@,;:/ "]+$' ]]; then
+	    _answer=$answer
+	    return
+	fi
+	prompt="Please enter a valid email address: "
+    done
+}
+
+prompt_for_username()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	    [ -z "$answer" ] || [[ "$answer" =~ '"' ]] && {
+		prompt="Bad username, please try again: "
+		continue
+	    }
+	    _answer=$answer
+	    return
+    done
+}
+
+prompt_for_password()
+{
+    local prompt="$*: " answer1 answer2
+
+    while :; do
+	OFS=$IFS
+	IFS=":"
+	read -ersp "$prompt" answer1
+	IFS=$OFS
+	echo
+	[ -z "$answer1" ] || [[ "$answer1" =~ '"' ]] && {
+	    prompt="Bad password, please try again: "
+	    continue
+	}
+	OFS=$IFS
+	IFS=":"
+	read -ersp "Retype password: " answer2
+	IFS=$OFS
+	echo
+	if [ "$answer2" = "$answer1" ]; then
+	    _answer=$answer1
+	    return
+	fi
+	prompt="Passwords do not match, enter again: "
+    done
+}
+
+prompt_for_unsigned()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	if [ "$answer" = "0" ]; then
+	    _answer=0
+	    return
+	elif [[ "$answer" =~ '^[1-9][0-9]*$' ]]; then
+	    _answer=$answer
+	    return
+	fi
+	prompt="Please enter a valid number: "
+    done
+}
+
+prompt_for_string()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	    [[ "$answer" =~ '"' ]] && {
+		prompt="Quotes not allowed, please try again: "
+		continue
+	    }
+	    _answer=$answer
+	    return
+    done
+}
+
+prompt_for_non_empty()
+{
+    local prompt="$*: " answer
+
+    while :; do
+	read -ep "$prompt" answer
+	    [ -z "$answer" ] && {
+		prompt="Please give an answer: "
+		continue
+	    }
+	    [[ "$answer" =~ '"' ]] && {
+		prompt="Quotes not allowed, please try again: "
+		continue
+	    }
+	    _answer=$answer
+	    return
+    done
+}
+
+debug()
+{
+    local line
+
+    echo -e "\nEntered debugger - be careful - type \"exit\" to leave\n"
+    while read -ep "debug# " line; do
+	[ "$line" = "exit" ] && break
+	eval $line
+    done
+}
+
+select_from_menu()
+{
+    local menufile=$1 action=$2
+    shift 2
+    local prompt="$*" number selection text
+
+    if [ "${menufile:0:1}" != "/" ]; then
+	if [ -f "./$menufile" ]; then
+	    menufile="./$menufile"
+	else
+	    menufile=${XVP_RESOURCE_DIR}/$menufile
+	fi
+    fi
+
+    while :; do
+	OFS=$IFS
+	IFS=":"
+	(
+	    echo -e "\n${prompt}:\n"
+	    number=0
+	    cat $menufile | while read function text; do
+		number=$((number + 1))
+		printf "%5d. %s\n" $number "$text"
+	    done
+	) | more
+	IFS=$OFS
+
+	echo
+	read -ep "Please enter selection: " number
+
+	# support for inline commands and "debug"
+	if [[ "$number" =~ '^\!(.*)$' ]]; then
+	    trap : SIGINT
+	    eval ${BASH_REMATCH[1]}
+	    trap - SIGINT
+	    prompt_for_continue
+	    continue
+	fi
+
+	if [[ "$number" =~ '^[1-9][0-9]*$' ]]; then
+	    selection=$(tail -n +$number $menufile | head -1 | cut -d: -f1)
+	else
+	    selection=
+	fi
+
+	if [ -n "$selection" ]; then
+	    case $action in
+		run)
+		    [ "$selection" = "return" ] && return 1
+		    eval $selection
+		    return 0
+		    ;;
+		get)
+		    _selection=$selection
+		    return
+		    ;;
+		*)
+		    echo "Internal error: select_from_menu: bad action $action" 1>&2
+		    exit 1
+		    ;;
+	    esac
+	fi
+
+	read -p "Invalid selection - press Enter to see choices again"
+    done
+}
+
+# -----------------------------------------------------------------------
+
+set_cron_entry()
+{
+    local reason=$1 frequency=$2 mins schedule
+    local tmpfile=/tmp/xvpappliance.cron.$$
+
+    case $reason in
+	update)
+	    mins=5
+	    ;;
+	rediscover)
+	    mins=10
+	    ;;
+	*)
+	    echo "Internal error: set_cron_entry: bad reason $reason" 1>&2
+	    exit 1
+	    ;;
+    esac
+
+    crontab -l 2>/dev/null | grep -v "xvpappliance --$reason" >$tmpfile
+    case "$frequency" in
+	hourly)
+	    schedule="$mins * * * *"
+	    ;;
+	daily)
+	    schedule="$mins 0 * * *"
+	    ;;
+	weekly)
+	    schedule="$mins 0 * * 1"
+	    ;;
+	monthly)
+	    schedule="$mins 0 1 * *"
+	    ;;
+	never)
+	    ;;
+	*)
+	    echo "Internal error: bad frequency $frequency" 1>&2
+	    exit 1
+	    ;;
+    esac
+
+    if [ -n "$schedule" ]; then
+	echo "$schedule /usr/sbin/xvpappliance --$reason" >>$tmpfile
+    fi
+
+    if [ -s $tmpfile ]; then
+	crontab $tmpfile
+    else
+	crontab -r 2>/dev/null
+	[ ! -f /var/spool/cron/root ]
+    fi
+    [ $? -eq 0 ] && echo "Schedule successfully updated"
+}
+
+configure_timezone()
+{
+    local region location ok=true menufile=/tmp/xvpappliance.timezone.$$
+    local inode1 inode2 hardlink=false
+    echo
+
+    #
+    # Not doing anything with UTC flag here, as can't access
+    # hardware clock using hwclock if running in a Xen VM
+    #
+    # Beware: some systems hard link /etc/localtime, in which
+    # case must not overwrite it
+    #
+
+    location=$(grep '^ZONE=' /etc/sysconfig/clock 2>/dev/null |
+	sed -e 's/^ZONE="//' -e 's/"$//')
+
+    if [ -n "$location" ]; then
+	inode1=$(ls -i /usr/share/zoneinfo/$location 2>/dev/null | cut -d' ' -f1)
+	inode2=$(ls -i /etc/localtime 2>/dev/null | cut -d' ' -f1)
+	[ "$inode1" = "$inode2" ] && hardlink=true
+	echo "Currently set timezone is $location"
+	echo
+	prompt_for_no "Do you want to change this" && return
+    fi
+
+    select_from_menu regions.menu get "Please choose the region you are in"
+    region=$_selection
+
+    find /usr/share/zoneinfo/$region -type f | sort | awk '{
+	gsub("/usr/share/zoneinfo/'$region'/", "", $1);
+        printf("%s:%s\n", $1,
+               gensub("/", " - ", "g", gensub("_", " ", "g", $1)));
+    }' >$menufile
+
+    select_from_menu $menufile get "Please select the nearest location in $region"
+    location=$region/$_selection
+
+    cat >/etc/sysconfig/clock <<EOF
+ZONE="$location"
+UTC=true
+ARC=false
+EOF
+
+    if [ $? -ne 0 ]; then
+	ok=false
+    elif cmp -s "/usr/share/zoneinfo/$location" /etc/localtime; then
+	ok=true
+    elif [ $hardlink = true ]; then
+	ln -f "/usr/share/zoneinfo/$location" /etc/localtime || ok=false
+    else
+	cp "/usr/share/zoneinfo/$location" /etc/localtime || ok=false
+    fi
+
+    if [ $ok = false ]; then
+	echo "Unable to update timezone" 1>&2
+	return 1
+    fi
+
+    echo -e "\nTimezone is now set to $location\nLocal time is now $(date)"
+
+    rm -f $menufile
+    return 0
+}
+
+check_local_console()
+{
+    case "$(tty 2>/dev/null)" in
+	/dev/pts/*)
+	    cat <<EOF
+
+You appear to be connected via a network, and will lose this connection
+if you make changes from here.  It would probably be better to do this
+from the appliance's console.
+
+EOF
+	    prompt_for_no "Continue from here now" && return 1
+	    ;;
+    esac
+    return 0
+}
+
+configure_network()
+{
+    local hostname leafname domainname gateway
+    local hwaddr ipaddr netmask dns1 dns2 action
+
+    if grep -qs '^HOSTNAME=' /etc/sysconfig/network; then
+	echo
+	prompt_for_no "Do you want to change existing network settings" \
+	    && return 0
+    fi
+
+    check_local_console || return 0
+
+    prompt_for_fqdn "Appliance hostname including domain"
+    hostname=$_answer
+    domainname=${hostname#*.}
+    leafname=${hostname%%.*}
+
+    prompt_for_ipv4 "Appliance IP address"
+    ipaddr=$_answer
+    prompt_for_ipv4 "Subnet mask"
+    netmask=$_answer
+    prompt_for_ipv4 "Default gateway address"
+    gateway=$_answer
+
+    prompt_for_ipv4 "First DNS server IP address"
+    dns1=$_answer
+    prompt_for_no "Do you want to specify a second DNS server" || {
+	prompt_for_ipv4 "Second DNS server IP address"
+	dns2=$_answer
+    }
+
+    hwaddr=$(ifconfig eth0 | grep HWaddr | awk '{ print $NF }')
+
+    cat <<EOF >/etc/resolv.conf
+search $domainname
+nameserver $dns1
+EOF
+    [ -n "$dns2" ] && echo "nameserver $dns2" >>/etc/resolv.conf
+
+
+    cat <<EOF >/etc/sysconfig/network
+NETWORKING=yes
+NETWORKING_IPV6=no
+HOSTNAME=$hostname
+GATEWAY=$gateway
+EOF
+
+    cat <<EOF >/etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+BOOTPROTO=static
+HWADDR=$hwaddr
+IPADDR=$ipaddr
+NETMASK=$netmask
+ONBOOT=yes
+EOF
+
+    cat <<EOF >/etc/hosts
+# Do not remove the following line, or various programs
+# that require network functionality will fail.
+127.0.0.1		$hostname $leafname localhost.localdomain localhost
+::1		localhost6.localdomain6 localhost6
+$ipaddr	$hostname $leafname
+EOF
+
+    hostname $hostname
+    service network restart
+
+    if [ ${BOOTSTRAPPING} = true ]; then
+	service sshd status >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+	    action="reload"
+	else
+	    action="start"
+	fi
+	service sshd $action
+    fi
+}
+
+configure_email_recipients()
+{
+    local menufile=/tmp/xvpappliance.recipients.$$
+    local recipients recipient updated=false
+
+    [ -f /root/.forward ] && recipients=$(cat /root/.forward | tr '[;,]' ' ')
+
+    while :; do
+
+	echo 'add:Add an email recipient' >$menufile
+	for recipient in $recipients; do
+	    echo "$recipient:Delete recipient \"$recipient\"" >>$menufile
+	done
+	echo 'finish:Finish managing email recipients' >>$menufile
+
+	select_from_menu $menufile get "Select an option"
+	case "$_selection" in
+	    add)
+		prompt_for_email "Enter email address"
+		recipients="${recipients} $_answer"
+		updated=true
+		;;
+	    finish)
+		break
+		;;
+	    *)
+		recipients=$(echo $recipients | sed -e "s/$_selection//g")
+		updated=true
+		;;
+	esac
+    done
+
+    rm -f $menufile
+    [ $updated = false ] && return 0
+
+    set -- $recipients
+    if [ $# -eq 0 ]; then
+	rm -f /root/.forward || return 1
+    else
+	echo $* | tr ' ' ',' >/root/.forward || return 1
+    fi
+
+    echo -e "\nList of email recipients successfully updated"
+    return 0
+}
+
+configure_email_gateway()
+{
+    local gateway username password
+
+    echo
+    gateway=$(grep "^define(\`SMART_HOST'" /etc/mail/sendmail.mc | sed -e 's/.*`//' -e "s/'.*//" 2>/dev/null)
+    if [ -n "$gateway" ]; then
+	echo "Email gateway is currently set to $gateway"
+	prompt_for_no "Do you want to change this" && return 0
+    fi
+
+    prompt_for_fqdn "Hostname of outgoing email gateway"
+    gateway=$_answer
+    check_host_lookup xvp-smtp-relay "$gateway" -unique
+
+    prompt_for_no "Does this gateway require authentication" || {
+	prompt_for_username "Authentication username"
+	username=$_answer
+	prompt_for_password "Authentication password"
+	password=$_answer
+    }
+
+    [ -f /etc/mail/sendmail.mc.xvpappliance ] || \
+	cp -p /etc/mail/sendmail.mc /etc/mail/sendmail.mc.xvpappliance
+    [ -f /etc/mail/sendmail.cf.xvpappliance ] || \
+	cp -p /etc/mail/sendmail.cf /etc/mail/sendmail.cf.xvpappliance
+
+    egrep -v "^(define\(\`SMART_HOST'|define\(\`confAUTH_MECHANISMS'|FEATURE\(\`authinfo'|MAILER\()" \
+	/etc/mail/sendmail.mc >/tmp/xvpappliance.sendmail.$$
+
+    cat >>/tmp/xvpappliance.sendmail.$$ <<EOF
+define(\`SMART_HOST', \`$gateway')dnl
+EOF
+
+    if [ -n "$username" ]; then
+	mkdir -p /etc/mail/auth
+	cat >/etc/mail/auth/client-info <<EOF
+AuthInfo:$gateway "U:$username" "I:$username" "P:$password"
+EOF
+	(cd /etc/mail/auth; makemap hash client-info < client-info)
+	cat >>/tmp/xvpappliance.sendmail.$$ <<EOF
+define(\`confAUTH_MECHANISMS', \`EXTERNAL GSSAPI DIGEST-MD5 CRAM-MD5 LOGIN PLAIN')dnl
+FEATURE(\`authinfo',\`hash /etc/mail/auth/client-info')dnl
+EOF
+    else
+	rm -rf /etc/mail/auth
+    fi
+
+    cat >>/tmp/xvpappliance.sendmail.$$ <<EOF
+MAILER(smtp)dnl
+MAILER(procmail)dnl
+EOF
+
+    cp /tmp/xvpappliance.sendmail.$$ /etc/mail/sendmail.mc 
+    rm /tmp/xvpappliance.sendmail.$$
+    (cd /etc/mail; make sendmail.cf) || {
+	cp -p /etc/mail/sendmail.mc.xvpappliance /etc/mail/sendmail.mc
+	echo "Unexpected error rebuilding /etc/mail/sendmail.cf" 1>&2
+	return 1
+    }
+
+    service sendmail status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	action="reload"
+    else
+	action="start"
+    fi
+
+    service sendmail $action | sed -e 's/\r.*//'
+
+    sleep 10
+    service sendmail status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	chkconfig sendmail on
+	return 0
+    fi
+
+    cat <<EOF
+The sendmail service unexpectedly stopped.  The contents of the log file
+/var/log/maillog may indicate why:
+EOF
+    return 1
+}
+
+configure_email_test()
+{
+    echo
+
+    if [ ! -f /root/.forward ]; then
+	echo "No email recipients have been configured" 1>&2
+	return 1
+    fi
+
+    service sendmail status >/dev/null 2>&1 || {
+	echo "The sendmail service is not running" 1>&2
+	return 1
+    }
+
+    prompt_for_string "Enter test email subject line"
+
+    sendmail root <<EOF
+From: root@$(hostname -f)
+To: $(cat /root/.forward)
+Subject: $_answer
+
+This is a test email from the xvpappliance host $(hostname -f).
+
+You have received it because the appliance is configured to forward email
+to the following recipient(s): 
+
+$(cat /root/.forward | tr ',;' '\n' | sed 's/^/    /')
+
+Please do not reply to this email.
+EOF
+
+  cat <<EOF
+
+If no error messages appeared above, a test email has been sent to:
+
+  $(cat /root/.forward)
+
+If the email does not arrive, this appliance's email gateway configuration
+may need changing.  The file /var/log/maillog may contain error details.
+EOF
+}
+
+configure_email()
+{
+    if [ ${BOOTSTRAPPING} = true ]; then
+
+	if service sendmail status >/dev/null 2>&1; then
+	    echo
+	    prompt_for_no "Do you want to change existing email settings" \
+		&& return 0
+	fi
+
+	cat <<EOF
+
+Please specify an existing email address to receive email notifications
+from this appliance, and the name of an SMTP email gateway through which
+this appliance may send emails.  You can change these settings again later
+and send test emails using the "Configure email" menu option.
+
+EOF
+
+	prompt_for_email "Enter email address"
+	echo "$_answer" >/root/.forward
+	configure_email_gateway
+	return 0
+    fi
+
+    while :; do
+	select_from_menu email.menu run "Select an option" || break
+    done
+}
+
+display_user_rights()
+{
+    local user="$1" entry="$2" match number=0
+    echo -e "\nAccess rights for user \"${user}\""
+
+    grep "^${user}:" ${XVP_USERS_CONF_FILE} | while read line; do
+	[[ "$line" =~ "^[^:]+:([^:]+):([^:]+):([^:]+):([^:]+)$" ]] || continue
+	pool=${BASH_REMATCH[1]}
+	group=${BASH_REMATCH[2]}
+	vm=${BASH_REMATCH[3]}
+	rights=${BASH_REMATCH[4]}
+	number=$((number + 1))
+
+	if [ -n "$entry" ]; then
+	    [ $entry -ne $number ] && continue
+	    _entry=$line
+	    return
+	fi
+
+	if [ "$pool" = "*" ]; then
+	    pool="All"
+	elif is_uuid "$vm"; then
+	    # convert UUID to name for display
+	    for file in ${XVP_POOL_CONF_PREFIX}*.pool; do
+		match=$(grep "^VM.* $vm " $file) && break
+	    done
+	    if [[ "$match" =~ "^VM [^ ]+ [0-9a-f-]+ [0-9a-f]+ # (.+)$" ]]; then
+		vm=${BASH_REMATCH[1]}
+	    fi
+	fi
+
+	[ "$group" = "*" ] && group="All"
+	[ "$vm" = "*" ] && vm="All"
+
+	if [ "$group" = "-" -a "$vm" = "-" ]; then
+	    cat <<EOF
+
+    Entry  : $number
+    Pool   : $pool
+    Host   : All
+    Rights : $(title_case $rights)
+EOF
+	else
+	    cat <<EOF
+
+    Entry  : $number
+    Pool   : $pool
+    Group  : $group
+    VM     : $vm
+    Rights : $(title_case $rights)
+EOF
+	fi
+    done
+}
+
+set_user_vm()
+{
+    local filename=$1
+    local menufile=/tmp/xvpappliance.vmsmenu.$$
+
+    echo "*:All virtual machines" >$menufile
+    grep '^VM' $filename | while read line; do
+	if [[ "$line" =~ "^VM [^ ]+ ([0-9a-f-]+) [0-9a-f]+ # (.+)$" ]]; then
+	    # uuid:name
+	    echo "${BASH_REMATCH[1]}:${BASH_REMATCH[2]}" >>$menufile
+	elif [[ "$line" =~ "^VM [^ ]+ \"([^\"]+)\" [0-9a-f]+" ]]; then
+	    # name:name
+	    echo "${BASH_REMATCH[1]}:${BASH_REMATCH[1]}" >>$menufile
+	fi
+    done
+
+    select_from_menu $menufile get "Select virtual machine user may access"
+    rm -f $menufile
+}
+
+set_user_rights()
+{
+    local user="$1" scope="$2" filenames filename ngroups
+    local poolname groupname vmname vmwhere vmrights hostwhere hostrights
+    local menufile=/tmp/xvpappliance.rightsmenu.$$
+
+    echo "*:All pools" >$menufile
+    filenames=$(grep "^INCLUDE.*\.pool" ${XVP_CONF_FILE} | cut -d'"' -f2)
+    for filename in $filenames; do
+	poolname=$(grep '^POOL' $filename 2>/dev/null | cut -d'"' -f2)
+	echo "${filename}:Pool \"${poolname}\"" >>$menufile
+    done
+
+    select_from_menu $menufile get "Select which pool the user may access"
+
+    if [ "$_selection" = "*" ]; then
+	poolname="*"
+    else
+	filename=$_selection
+	poolname=$(grep '^POOL' $_selection 2>/dev/null | cut -d'"' -f2)
+    fi
+
+    if [ "$scope" = "vm" ]; then
+	hostrights=""
+    else
+	echo
+	if prompt_for_yes "Allow user to see server hosts"; then
+	    hostrights="list"
+	else
+	    hostrights="none"
+	fi
+	hostwhere="${poolname}:-:-"
+    fi
+
+    if [ "$scope" = "host" ]; then
+        update_xvp_users_conf "$user" "" "" "$hostwhere" "$hostrights" 
+	return
+    fi
+
+    if [ "$poolname" = "*" ]; then
+	groupname="*"
+	vmname="*"
+    else
+	ngroups=$(grep '^GROUP' $_selection 2>/dev/null | wc -l)
+	if [ $ngroups -eq 0 ]; then
+	    groupname="*"
+	else
+	    echo "*:All groups" >$menufile
+	    grep '^GROUP' $_selection | while read key value; do
+		groupname=${value//\"/}
+		echo "${groupname}:${groupname}" >>$menufile
+	    done
+	    select_from_menu $menufile get "Select which group of VMs the user may access"
+	    groupname="$_selection"
+	fi
+	if [ "$groupname" = "*" ]; then
+	    set_user_vm $filename
+	    vmname="$_selection"
+	else
+	    vmname="*"
+	fi
+    fi
+
+    vmwhere="${poolname}:${groupname}:${vmname}"
+
+    while :; do
+	select_from_menu rights.menu get "Select access rights for user (Help for details)"
+	if [ "$_selection" = "help" ]; then
+	    more <<EOF
+
+The setting for a user's rights can be any one of the following, and unless
+you have a custom /etc/xvprights.conf file, the operations they permit are:
+
+List     The relevant virtual machine(s) will be included in those shown to
+         the user in the web interface, but the user will not be able to
+         access their consoles or perform power operations on them.
+
+Read     The same as for list, except the user will be able to view the
+         consoles (although not send keyboard or mouse input to them, and not
+         perform power operations), and view the properties of the VM(s).
+
+Write    The same as for read, except the user can send keyboard and mouse
+         input (but not perform power operations).
+
+Control  The same as for write, except the user can perform power operations
+         that don't specify a particular server host or DVD drive.
+
+All      The user can perform all possible operations, including those that
+         specify particular server hosts (e.g. booting or resuming a virtual
+         machine on a specific host, or migrating it to a specific host) or
+         DVD drives (inserting or ejecting).
+EOF
+	    prompt_for_continue
+	else
+	    vmrights=$_selection
+	    break
+	fi
+    done
+    rm -f $menufile
+
+    [ "$vmrights" = "cancel" ] && return 1
+    update_xvp_users_conf "$user" "$vmwhere" "$vmrights" "$hostwhere" "$hostrights" 
+}
+
+remove_user_rights_entry()
+{
+    local user="$1" line
+    local tmpfile=/tmp/xvpappliance.xvpusers.$$
+
+    display_user_rights "$user" | more
+
+    echo
+    prompt_for_unsigned "Please select entry number, or 0 to return to previous menu"
+    [ $_answer -eq 0 ] && return 1
+
+    line=$(grep "^${user}:" ${XVP_USERS_CONF_FILE} | tail -n +$_answer | head -1 | sed -e 's/*/\\*/g')
+
+    if [ -z "$line" ]; then
+	echo -e "\nNo such entry"
+	return 1
+    fi
+
+    grep -v "^${line}$" ${XVP_USERS_CONF_FILE} >$tmpfile
+    cp $tmpfile ${XVP_USERS_CONF_FILE}
+    if [ $? -ne 0 ]; then
+	echo "Failed to update ${XVP_USERS_CONF_FILE}" 1>&2
+	return 1
+    fi
+
+    rm -f $tmpfile
+    return 0
+}
+
+configure_xvp_users()
+{
+    local user pass umfile
+    local menufile1=/tmp/xvpappliance.usermenu1.$$
+    local menufile2=/tmp/xvpappliance.usermenu2.$$
+
+    if [ ! -f ${XVP_USERS_CONF_FILE} ]; then
+	create_xvp_users_files || return 1
+    fi
+
+    while :; do
+
+	echo 'add:Add a user' >$menufile1
+	sed -e 's/:.*//' ${XVP_USERS_CONF_FILE} | sort -fu | (
+	    IFS=:
+	    while read user; do
+		echo "${user}:Configure user \"$user\"" >>$menufile1
+	    done
+	    )
+	echo 'finish:Finish configuring users' >>$menufile1
+
+	if [ -f ./user.menu ]; then
+	    umfile=./user.menu
+	else
+	    umfile=${XVP_RESOURCE_DIR}/user.menu
+	fi
+	if [ -f ${XVP_LDAP_CONF_FILE} ]; then
+	    grep -v '^password:' $umfile >$menufile2
+	else
+	    cp $umfile $menufile2
+	fi
+
+	select_from_menu $menufile1 get "Select an option"
+	case "$_selection" in
+	    add)
+		prompt_for_username "Username"
+		user=$_answer
+		if grep -qs "^${user}:" ${XVP_USERS_CONF_FILE}; then
+		    echo -e "\nUser \"$user\" already exists"
+		    continue
+		fi
+		if [ -f ${XVP_LDAP_CONF_FILE} ]; then
+		    pass="dummy"
+		else
+		    prompt_for_password "Password"
+		    pass=$_answer
+		fi
+		set_user_rights "$user" && \
+		    update_xvp_users_digest "$user" "$pass" || return 1
+		echo "User \"$user\" successfully added"
+		;;
+	    finish)
+		break
+		;;
+	    *)
+		user="$_selection"
+
+		while :; do
+		    select_from_menu $menufile2 \
+			get "Please select operation to perform for user \"$user\""
+		    case $_selection in
+			delete)
+			    prompt_for_yes "Are you sure you want to delete this user" || break
+			    update_xvp_users_conf "$user" "" "none" "" "none" && \
+				update_xvp_users_digest "$user" "" || return 1
+			    echo "User \"$user\" successfully deleted"
+			    break
+			    ;;
+			password)
+			    prompt_for_password "New password"
+			    pass=$_answer
+			    update_xvp_users_digest "$user" "$pass" || return 1
+			    echo "Password for user \"$user\" successfully updated"
+			    ;;
+			display)
+			    if grep -qs "^${user}:" ${XVP_USERS_CONF_FILE}; then
+				display_user_rights "$user" | more
+				prompt_for_continue
+			    else
+				echo -e "\nUser currently has no rights entries"
+			    fi
+			    ;;
+			vm|host)
+			    set_user_rights "$user" $_selection || return 1
+			    echo "Rights for user \"$user\" successfully updated"
+			    ;;
+			remove)
+			    if grep -qs "^${user}:" ${XVP_USERS_CONF_FILE}; then
+				remove_user_rights_entry "$user" && \
+				    echo -e "\nEntry successfully removed"
+			    else
+				echo -e "\nUser currently has no rights entries"
+			    fi
+			    ;;
+			help)
+			    more <<EOF
+
+From this menu, you can display and modify a user's rights, or delete
+the user from the appliance.  You can also change the user's password
+from here, unless you are using LDAP-based authentication.
+
+When this user was first added, they were given 2 rights entries for the
+pool specified at the time (or all pools).  The first entry gave them
+the ability to access one or more virtual machines, the second entry
+determined whether they are able to see server hosts as well as virtual
+machines.
+
+Rights for virtual machines can be one of List, Read, Write, Control or
+All, and determine the user's level of access: when you set these, a
+separate Help option is available that explains what virtual machine
+actions each level enables.
+
+Rights for hosts are yes/no: displayed as List or None, and always apply
+to all hosts in a pool.
+
+When determining the allowed access to a pool/group/vm, if the user has
+more than one matching entry, the one granting the most access wins.
+When determining access to hosts, multiple entries behave similarly,
+except that if there is no matching hosts entry for a pool, but the user
+has access to one or more VMs in the pool, they will be able to see the
+hosts: an explicit None entry is needed to hide the hosts.
+
+You can see what rights entries a user has by using the Display option.
+The Add and Remove options allow you to manipulate individual rights
+entries.  If all you want to do is change the rights for an existing
+entry, leaving the pool/group/vm/host values unchanged, you don't need
+to remove the existing entry before adding a new one: the old one will
+automatically be removed if it matches the same pool/group/vm/host
+values as the new one.
+
+In some cases it may be easier to edit the underlying user rights file,
+/etc/xvpusers.conf, directly.  For details of its syntax, type:
+
+  man xvpusers.conf
+
+at the Linux prompt.
+EOF
+			    prompt_for_continue
+			    ;;
+			*)
+			    break
+			    ;;
+		    esac
+		done
+		;;
+	esac
+    done
+
+    rm -f $menufile1 $menufile2
+}
+
+write_pool_file()
+{
+    local filename=$1 poolname=$2 grouptag=$3 lockname=$4 outfile=$5
+    local tmpfile=/tmp/xvpappliance.pool.$$
+
+    # don't put date in file, so can easily avoid reload if unchanged
+    cat >$tmpfile <<EOF
+#
+# $filename
+#
+# Written by xvpappliance-${XVP_APPLIANCE_VERSION}
+#
+POOL "$poolname"
+#GROUPTAG "$grouptag"
+#LOCKNAME "$lockname"
+$(egrep -v '^(#|$|MULTIPLEX|POOL)' $outfile)
+EOF
+
+    if [ -f $filename ]; then
+	if cmp -s $tmpfile $filename; then
+	    rm -f $tmpfile
+	    return 1
+	fi
+    fi
+
+    cp $tmpfile $filename || return 2
+    chown root:${APACHE_GROUP} $filename
+    chmod 640 $filename
+    rm -f $tmpfile
+    return 0
+}
+
+check_host_lookup()
+{
+    local label=$1 hostname=$2 flag=$3 oldname
+
+    if [ "$flag" = "-noupdate" ]; then
+	getent hosts "$hostname" >/dev/null
+	return
+    fi
+
+    if getent hosts "$hostname" >/dev/null; then
+	[ "$flag" = "-unique" ] || return 0
+	oldname=$(grep -w "$label" /etc/hosts | awk '{ print $2 }')
+	if [ "$oldname" != "$hostname" -a "$oldname" != "" ]; then
+	    remove_host_lookups "$label" -quiet
+	fi
+	return 0
+    fi
+
+    cat <<EOF
+
+Host $hostname not found in /etc/hosts or in DNS.
+If you know its IP address, we can add it to /etc/hosts now.
+EOF
+
+    while :; do
+	prompt_for_string "Enter IP address, or press Enter to skip"
+	[ -z "$_answer" ] && return 1
+	is_ipv4 "$_answer" && break
+    done
+
+    [ "$flag" = "-unique" ] && remove_host_lookups "$label" -quiet
+    echo -e "$_answer\t$hostname #$label" >>/etc/hosts
+}
+
+remove_host_lookups()
+{
+    local label=$1 quiet=$2 count
+
+    count=$(grep -w "#$label" /etc/hosts | wc -l)
+    [ $count -eq 0 ] && return 0
+
+    if [ "$quiet" != "-quiet" ]; then
+	prompt_for_yes "Remove the $count hosts added to /etc/hosts for this pool" || return 0
+    fi
+
+    grep -v "#$label" /etc/hosts >/tmp/xvpappliance.hosts.$$ && \
+	cp /tmp/xvpappliance.hosts.$$ /etc/hosts
+
+    rm -f /tmp/xvpappliance.hosts.$$
+}
+
+configure_xvp_pools()
+{
+    local filename filenames poolname hostname hostnames username domainname
+    local password nhosts nvms action uuid grouptag address addresses ipcheck
+    local updated=false added=false
+    local menufile=/tmp/xvpappliance.poolmenu.$$
+    local errfile=/tmp/xvpappliance.err.$$
+    local outfile=/tmp/xvpappliance.out.$$
+    local options1="-f -m -r -a -o $outfile" options2
+
+    if [ ! -f ${XVP_CONF_FILE} ]; then
+
+	grep -qs "ProxyRequests On" ${XVP_WEB_CONF_FILE} 2>/dev/null
+	if [ $? -eq 0 ]; then
+	    ipcheck="HTTP"
+	else
+	    ipcheck="ON"
+	fi
+
+	cat <<EOF >${XVP_CONF_FILE}
+#
+# ${XVP_CONF_FILE}
+#
+# Written by xvpappliance-${XVP_APPLIANCE_VERSION}, $(date)
+#
+DATABASE xvp:${XVP_USERS_CONF_FILE}
+OTP REQUIRE IPCHECK $ipcheck
+MULTIPLEX 5900
+#
+EOF
+	updated=true
+    fi
+
+    chown root:${APACHE_GROUP} ${XVP_CONF_FILE}
+    chmod 640 ${XVP_CONF_FILE}
+
+    #
+    # Remove any orphaned pool files to avoid problems later
+    #
+    for filename in ${XVP_POOL_CONF_PREFIX}*.pool; do
+	[ -f "$filename" ] || continue # in case no wildcard matches
+	grep -qs "^INCLUDE \"$filename\"$" ${XVP_CONF_FILE} || rm -f $filename
+    done
+
+    while :; do
+
+	filenames=$(grep "^INCLUDE.*\.pool" ${XVP_CONF_FILE} | cut -d'"' -f2)
+
+	echo 'add:Add a pool' >$menufile
+
+	if [ -n "$filenames" -a ${BOOTSTRAPPING} = false ]; then
+	    for filename in $filenames; do
+		poolname=$(grep '^POOL' $filename 2>/dev/null | cut -d'"' -f2)
+		echo "${filename}:Remove pool \"${poolname}\"" >>$menufile
+	    done
+	    echo 'rediscover:Rediscover details for all pools now' >>$menufile
+	fi
+
+	if [ ${BOOTSTRAPPING} = false -o "$added" = true ]; then
+	    echo 'schedule:Schedule regular rediscovery of pool details' >>$menufile
+	fi
+	echo 'finish:Finish configuring pools' >>$menufile
+
+	if [ ${MODE} = batch ]; then
+	    _selection="rediscover"
+	else
+	    select_from_menu $menufile get "Select an option"
+	fi
+
+	case $_selection in
+	    add)
+		prompt_for_string "Group tag prefix (optional)"
+		grouptag=$_answer
+		if [ -n "$grouptag" ]; then
+		    xvpdiscover -g "$grouptag" $options1
+		else
+		    xvpdiscover $options1
+		fi
+	
+		if [ $? -ne 0 ]; then
+		    echo "Failed to discover pool details"
+		    continue
+		fi
+
+		poolname=$(grep '^POOL' $outfile | cut -d'"' -f2)
+		nhosts=$(grep '^HOST' $outfile | wc -l)
+		nvms=$(grep '^VM' $outfile | wc -l)
+		domainname=$(grep '^DOMAIN' $outfile 2>/dev/null | cut -d'"' -f2)
+		[ -n "$domainname" ] && domainname=".$domainname"
+
+		if [ -z "$poolname" ]; then
+		    # use name of 1st host (master) as pool name
+		    hostname=$(grep '^HOST' $outfile 2>/dev/null | head -1 | sed -e 's/^[^"]*"//' -e 's/".*//')
+		    if check_host_lookup xvp-dummy "$hostname" -noupdate; then
+			# host name label is probably a valid hostname
+			poolname="${hostname}${domainname}"
+		    else
+			# host name label could be unrelated to hostname
+			poolname="$hostname"
+		    fi
+		fi
+
+		echo -e "\nDiscovered $nhosts servers and $nvms VMs in pool \"$poolname\""
+		if [ $nvms -eq 0 ]; then
+		    echo "Cannot add a pool with no VMs"
+		    continue
+		fi
+		lockname="OFF"
+		prompt_for_no "Display with a different pool name" || {
+		    prompt_for_string "Pool display name"
+		    if [ -n "$_answer" ]; then
+			poolname=$_answer
+			lockname="ON"
+		    fi
+		}
+
+		if grep -qs "^POOL \"$poolname\"" ${XVP_POOL_CONF_PREFIX}*.pool; then
+		    echo -e "\nName of pool clashes with an already configured pool"
+		    continue
+		fi
+		
+		prompt_for_yes "Are you sure you want to add this pool" || continue
+		uuid=$(uuidgen)
+
+		filename="${XVP_POOL_CONF_PREFIX}${uuid}.pool"
+		write_pool_file $filename "$poolname" "$grouptag" $lockname $outfile
+
+		echo "INCLUDE \"$filename\"" >>${XVP_CONF_FILE}
+		rm -f $outfile
+		updated=true
+		added=true
+		;;
+	    rediscover)
+		for filename in $filenames; do
+		    poolname=$(grep '^POOL' $filename 2>/dev/null | cut -d'"' -f2)
+		    domainname=$(grep '^DOMAIN' $filename 2>/dev/null | cut -d'"' -f2)
+		    [ -n "$domainname" ] && domainname=".$domainname"
+		    grouptag=$(grep '^#GROUPTAG' $filename 2>/dev/null | cut -d'"' -f2)
+		    lockname=$(grep '^#LOCKNAME' $filename 2>/dev/null | cut -d'"' -f2)
+		    # this won't work with pool added < 1.5.1 ...
+		    addresses=$(grep '^HOST' $filename 2>/dev/null | sed -e 's/".*//' -e 's/^HOST[^0-9]*//')
+		    # ... but this will, assuming host name labels were hostnames
+		    hostnames=$(grep '^HOST' $filename 2>/dev/null | sed -e 's/^[^"]*"//' -e 's/".*//')
+		    set -- $(grep '^MANAGER' $filename 2>/dev/null | cut -d' ' -f2,3)
+		    username=${1//\"}
+		    password=$2
+		    [ ${MODE} != batch ] && echo -n "Rediscovering details for \"$poolname\" ... "
+		    if [ -n "$addresses" ]; then
+			# pool added >= 1.5.1
+			for address in $addresses; do
+			    rm -f $errfile
+			    options2="-s $address -u $username -x $password"
+			    if [ -n "$grouptag" ]; then
+				xvpdiscover -g "$grouptag" $options1 $options2 2>$errfile
+			    else
+				xvpdiscover $options1 $options2 2>$errfile
+			    fi
+			    [ -s $errfile ] || break
+			done
+		    else
+			# pool added < 1.5.1
+			for hostname in $hostnames; do
+			    rm -f $errfile
+			    options2="-s ${hostname}${domainname} -u $username -x $password"
+			    if [ -n "$grouptag" ]; then
+				xvpdiscover -g "$grouptag" $options1 $options2 2>$errfile
+			    else
+				xvpdiscover $options1 $options2 2>$errfile
+			    fi
+			    [ -s $errfile ] || break
+			done
+		    fi
+
+		    if [ -s $errfile ]; then
+			[ ${MODE} = batch ] && echo -n "Rediscovering details for \"$poolname\" ... "
+			echo "failed"
+			cat $errfile 1>&2
+			continue
+		    fi
+
+		    if [ "$lockname" != "ON" ]; then
+			poolname=$(grep '^POOL' $outfile 2>/dev/null | cut -d'"' -f2)
+			if [ -z "$poolname" ]; then
+			    # use name of 1st host (master) as pool name
+			    hostname=$(grep '^HOST' $outfile 2>/dev/null | head -1 | sed -e 's/^[^"]*"//' -e 's/".*//')
+			    if check_host_lookup xvp-dummy "$hostname" -noupdate; then
+				# host name label is probably a valid hostname
+				poolname="${hostname}${domainname}"
+			    else
+				# host name label could be unrelated to hostname
+				poolname="$hostname"
+			    fi
+			fi
+		    fi
+		    write_pool_file $filename "$poolname" "$grouptag" $lockname $outfile
+		    case $? in
+			0)
+			    updated=true
+			    [ ${MODE} = batch ] && echo -n "Rediscovering details for \"$poolname\" ... "
+			    echo "changed"
+			    ;;
+			1)
+			    [ ${MODE} != batch ] && echo "unchanged"
+			    ;;
+			2)
+			    [ ${MODE} = batch ] && echo -n "Rediscovering details for \"$poolname\" ... "
+			    echo "failed"
+			    ;;
+		    esac
+		done
+		rm -f $outfile $errfile
+		[ ${MODE} = batch ] && break
+		;;
+	    schedule)
+		select_from_menu schedule.menu get \
+		    "How frequently do you want rediscovery to take place"
+		set_cron_entry rediscover $_selection
+		;;
+	    finish)
+		break
+		;;
+	    *)
+		prompt_for_no "Are you sure you want to remove this pool" && continue
+		tmpfile=/tmp/xvpappliance.xvpconf.$$
+		grep -v "$_selection" ${XVP_CONF_FILE} >$tmpfile
+		cp $tmpfile ${XVP_CONF_FILE}
+		rm -f "$_selection" $tmpfile
+		# next line is to remove entries needed in < 1.5.1
+		remove_host_lookups $(basename ${_selection} .pool) -quiet
+		updated=true
+		;;
+	esac
+
+    done
+
+    rm -f $menufile
+    [ $updated = false ] && return 0
+
+    service xvp status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	action="reload"
+    else
+	action="start"
+    fi
+
+    if [ $(grep "^INCLUDE.*\.pool" ${XVP_CONF_FILE} | wc -l) -eq 0 ]; then
+	cat <<EOF
+
+The xvp service cannot run unless at least one pool is added.
+Please use the "Configure xvp pools" menu option to add one.
+EOF
+	[ $action = reload ] && service xvp stop
+	chkconfig xvp off
+	return 0
+    fi
+
+    service xvp $action | sed -e 's/\r.*//'
+
+    sleep 10
+    service xvp status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	chkconfig xvp on
+	return 0
+    fi
+
+    cat <<EOF
+The xvp service unexpectedly stopped.  The last line in the log file
+/var/log/xvp.log may indicate why:
+
+$(tail -1 /var/log/xvp.log)
+EOF
+    return 1
+}
+
+create_xvp_users_files()
+{
+    local user pass
+
+    rm -f ${XVP_USERS_CONF_FILE} ${XVP_USERS_DIGEST_FILE}
+
+    cat <<EOF
+
+Users of the web interface to xvp must specify a username and password
+to connect.  Please specify an initial user, who will be granted full
+access to all virtual machines.  You can add more users later using the
+"Configure xvp users" menu option.
+
+EOF
+
+    prompt_for_username "Username"
+    user=$_answer
+    if [ ! -f ${XVP_LDAP_CONF_FILE} ]; then
+	prompt_for_password "Password"
+	pass=$_answer
+    fi
+
+    update_xvp_users_conf "$user" "*:*:*" "all" "*:-:-" "list" && \
+	update_xvp_users_digest "$user" "$pass" || return 1
+}
+
+configure_xvp()
+{
+    if [ -f /etc/xvp.conf ]; then
+	prompt_for_no "Are you sure you want to reconfigure xvp settings" \
+	    && return 0
+	echo
+    fi
+
+    cat <<EOF
+Please add one or more XenServer or Xen Cloud Platform pools or standalone
+servers you wish the appliance to manage.  For each, you will need to specify
+a server hostname or IP address (for a pool, this can be any pool member
+that's running), and an existing server username (usually "root") and
+associated password.
+
+You may also specify a tag prefix, used to group VMs when displaying in web
+browsers.  For details see the manual page for xvpdiscover.  If you don't
+want a tag prefix, just hit Enter when asked for one.
+EOF
+
+    configure_xvp_pools
+    create_xvp_users_files
+}
+
+update_xvp_tunnel()
+{
+    local ipcheck tunnel=$1 tmpfile=/tmp/xvpappliance.xvpconf.$$
+
+    [ -f ${XVP_CONF_FILE} ] || return 0
+
+    [ "$tunnel" = true ] && ipcheck="HTTP" || ipcheck="ON"
+
+    sed -e 's/IPCHECK .*$/IPCHECK '$ipcheck'/' ${XVP_CONF_FILE} >$tmpfile
+    cmp -s $tmpfile ${XVP_CONF_FILE} && return 0
+    cp $tmpfile ${XVP_CONF_FILE} || return 1
+    rm -f $tmpfile
+
+    service xvp status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	service xvp reload | sed -e 's/\r.*//'
+    fi
+
+    return 0
+}
+
+repatch_httpd_tunnel()
+{
+    [ -f ${APACHE_MODULE_DIR}/mod_proxy_connect.so ] || return 0
+    [ -f ${APACHE_MODULE_DIR}/mod_proxy_connect.xvp ] || return 0
+
+    cmp -s ${APACHE_MODULE_DIR}/mod_proxy_connect.xvp ${APACHE_MODULE_DIR}/mod_proxy_connect.so && return 0
+
+    mv -f ${APACHE_MODULE_DIR}/mod_proxy_connect.so ${APACHE_MODULE_DIR}/mod_proxy_connect.so.old && \
+	cp -p ${APACHE_MODULE_DIR}/mod_proxy_connect.xvp ${APACHE_MODULE_DIR}/mod_proxy_connect.so
+
+    service httpd condrestart
+}
+
+update_xvp_users_conf()
+{
+    local user=$1 vmwhere=$2 vmrights=$3 hostwhere=$4 hostrights=$5
+    local match entries tmpfile=/tmp/xvpappliance.xvpusers.$$
+
+    if [ -f ${XVP_USERS_CONF_FILE} ]; then
+	action="update"
+    else
+	action="create"
+	cp /dev/null ${XVP_USERS_CONF_FILE} && \
+	    chown root:${APACHE_GROUP} ${XVP_USERS_CONF_FILE} && \
+	    chmod 640 ${XVP_USERS_CONF_FILE}
+	if [ $? -ne 0 ]; then
+	    echo "Failed to ${action} ${XVP_USERS_CONF_FILE}" 1>&2
+	    return 1
+	fi
+    fi
+
+    if [ -z "$vmwhere" -a -z "$hostwhere" ]; then
+	grep -v "^${user}:" ${XVP_USERS_CONF_FILE} >$tmpfile
+	cp $tmpfile ${XVP_USERS_CONF_FILE}
+	if [ $? -ne 0 ]; then
+	    echo "Failed to ${action} ${XVP_USERS_CONF_FILE}" 1>&2
+	    return 1
+	fi
+	rm -f $tmpfile
+	return 0
+    fi
+
+    if [ -z "$vmwhere" ]; then
+	match=$(echo "${user}:${hostwhere}:" | sed -e 's/*/\\*/g')
+	entries="${user}:${hostwhere}:${hostrights}"
+    elif [ -z "$hostwhere" ]; then
+	match=$(echo "${user}:${vmwhere}:" | sed -e 's/*/\\*/g')
+	entries="${user}:${vmwhere}:${vmrights}"
+    else
+	match=$(echo "${user}:${vmwhere}:|${user}:${hostwhere}:" | sed -e 's/*/\\*/g')
+	entries="${user}:${vmwhere}:${vmrights}\n${user}:${hostwhere}:${hostrights}"
+    fi
+
+    egrep -v "($match)" ${XVP_USERS_CONF_FILE} >$tmpfile
+
+    echo -e "$entries" >>$tmpfile && \
+	env LC_ALL=C sort -uf $tmpfile >${XVP_USERS_CONF_FILE}
+    if [ $? -ne 0 ]; then
+	echo "Failed to ${action} ${XVP_USERS_CONF_FILE}" 1>&2
+	rm -f $tmpfile
+	return 1
+    fi
+
+    rm -f $tmpfile
+    return 0
+}
+
+update_xvp_users_digest()
+{
+    local action user=$1 pass=$2 tmpfile=/tmp/xvpappliance.digest.$$
+
+    [ -f ${XVP_LDAP_CONF_FILE} ] && return 0
+
+    if [ -f ${XVP_USERS_DIGEST_FILE} ]; then
+	action="update"
+	if grep -qs "^${user}:${XVP_DIGEST_REALM}:" ${XVP_USERS_DIGEST_FILE}; then
+	    rm -f $tmpfile
+	    grep -v "^${user}:${XVP_DIGEST_REALM}:" ${XVP_USERS_DIGEST_FILE} >$tmpfile
+	    cp $tmpfile ${XVP_USERS_DIGEST_FILE}
+	    if [ $? -ne 0 ]; then
+		echo "Failed to ${action} ${XVP_USERS_DIGEST_FILE}" 1>&2
+		return 1
+	    fi
+	    rm -f $tmpfile
+	fi
+    else
+	action="create"
+	cp /dev/null ${XVP_USERS_DIGEST_FILE} && \
+	    chown root:${APACHE_GROUP} ${XVP_USERS_DIGEST_FILE} && \
+	    chmod 640 ${XVP_USERS_DIGEST_FILE}
+	if [ $? -ne 0 ]; then
+	    echo "Failed to ${action} ${XVP_USERS_DIGEST_FILE}" 1>&2
+	    return 1
+	fi
+    fi
+
+    [ -z "$pass" ] && return 0
+
+    # htdigest insists on using /dev/tty, so get PHP to do it instead
+    php -r "printf(\"%s:%s:%s\\n\", \"${user}\", \"${XVP_DIGEST_REALM}\", md5(\"${user}:${XVP_DIGEST_REALM}:${pass}\"));" >>${XVP_USERS_DIGEST_FILE}
+
+    grep -qs "^${user}:${XVP_DIGEST_REALM}:" ${XVP_USERS_DIGEST_FILE} && return 0
+
+    echo "Failed to ${action} ${XVP_USERS_DIGEST_FILE}" 1>&2
+    return 1
+}
+
+configure_web_server()
+{
+    create_xvp_web_conf
+    create_ssl_web_crt
+    create_xvp_ldap_conf
+    create_xvp_viewer_conf
+
+    service httpd status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	action="restart"
+    else
+	action="start"
+    fi
+    service httpd $action | sed -e 's/\r.*//'
+
+    sleep 10
+    service httpd status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	chkconfig httpd on
+	return 0
+    fi
+
+    cat <<EOF
+The httpd service unexpectedly stopped.  The log files in the directory
+/var/log/httpd may indicate why.
+EOF
+    return 1
+}
+
+create_xvp_web_conf()
+{
+    local rewrite="" tunnel=false
+    echo
+
+    if [ -f ${XVP_WEB_CONF_FILE} ]; then
+	prompt_for_yes "File ${XVP_WEB_CONF_FILE} exists - overwrite" || return 0
+    fi
+
+    prompt_for_yes "Redirect users from HTTP to HTTPS for security" &&
+    rewrite=$(echo -e "RewriteEngine On\nRewriteCond %{HTTPS} !=on\nRewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI} [R,L]\n")
+
+    prompt_for_no "Tunnel VNC console connections via HTTP/HTTPS" || tunnel=true
+
+    cat >${XVP_WEB_CONF_FILE} <<EOF
+#
+# ${XVP_WEB_CONF_FILE}
+#
+# Written by xvpappliance-${XVP_APPLIANCE_VERSION}, $(date)
+#
+# Note: The file-based authentication scheme here is overridden by LDAP
+# based authentication in ${XVP_LDAP_CONF_FILE} if the latter exists.
+
+RedirectMatch permanent ^/\$ /xvpweb/
+$rewrite
+
+<Location /xvpweb>
+  AuthType Digest
+  AuthName "${XVP_DIGEST_REALM}"
+  AuthDigestDomain /xvpweb/
+  AuthDigestProvider file
+  AuthUserFile ${XVP_USERS_DIGEST_FILE}
+  Require valid-user
+</Location>
+EOF
+
+    if [ $? -ne 0 ]; then
+	echo "Failed to created ${XVP_WEB_CONF_FILE}" 1>&2
+	return 1
+    fi
+
+    if [ $tunnel = true ]; then
+	cat >>${XVP_WEB_CONF_FILE} <<EOF
+
+ProxyRequests On
+AllowCONNECT 5900
+
+<Proxy *>
+  Deny from all
+</Proxy>
+
+<Proxy $(hostname -f):5900>
+  Deny from all
+  <Limit CONNECT>
+    Allow from all
+  </Limit>
+</Proxy>
+
+<Proxy $(hostname -s):5900>
+  Deny from all
+  <Limit CONNECT>
+    Allow from all
+  </Limit>
+</Proxy>
+EOF
+
+	if [ $? -ne 0 ]; then
+	    echo "Failed to created ${XVP_WEB_CONF_FILE}" 1>&2
+	    return 1
+	fi
+    fi
+
+    chown root:root ${XVP_WEB_CONF_FILE}
+    chmod 644 ${XVP_WEB_CONF_FILE}
+
+    update_xvp_tunnel $tunnel
+
+    return 0
+}
+
+create_xvp_viewer_conf()
+{
+    [ -f ${XVP_VIEWER_CONF_FILE} ] && return 0
+
+    cat >${XVP_VIEWER_CONF_FILE} <<EOF
+#
+# ${XVP_VIEWER_CONF_FILE}
+#
+# Written by xvpappliance-${XVP_APPLIANCE_VERSION}, $(date)
+#
+# Avoid need for Apache-enforced second sign-on when fetching xvpviewer's
+# Java applet, having already logged in to xvpweb.  This is still secure,
+# as the applet must still authenticate at the RFB/XVP protocol level,
+# using the one-time VNC password that's passed to it by console.php.
+# Note that some clients will initially request VncViewer.jar.pack.gz. 
+# 
+
+<Files VncViewer.jar*>
+  Order deny,allow
+  Allow from all
+  Satisfy any
+</Files>
+EOF
+
+    if [ $? -ne 0 ]; then
+	echo "Failed to created ${XVP_VIEWER_CONF_FILE}" 1>&2
+	return 1
+    fi
+
+    chown root:root ${XVP_VIEWER_CONF_FILE}
+    chmod 644 ${XVP_VIEWER_CONF_FILE}
+
+    return 0
+}
+
+create_xvp_ldap_conf()
+{
+    local query="Use LDAP-based user authentication (e.g. Active Directory)"
+    local url="" proto="ldap" hosts="" basedn="" attr="" binddn="" bindpw=""
+
+    if [ -f ${XVP_LDAP_CONF_FILE} ]; then
+	prompt_for_yes "$query" || {
+	    rm -f ${XVP_LDAP_CONF_FILE}
+	    if [ ! -f ${XVP_USERS_DIGEST_FILE} ]; then
+		update_xvp_users_digest "" ""
+	    fi
+	    remove_host_lookups xvp-ldap-1 -quiet
+	    remove_host_lookups xvp-ldap-2 -quiet
+
+	    return 0
+	}
+	prompt_for_yes "File ${XVP_LDAP_CONF_FILE} exists - overwrite" || return 0
+    else
+	prompt_for_no "$query" && return 0
+    fi
+
+    prompt_for_fqdn "First LDAP server hostname including domain"
+    hosts=$_answer
+    check_host_lookup xvp-ldap-1 "$_answer" -unique
+
+    prompt_for_no "Do you want to specify a second LDAP server" || {
+	prompt_for_fqdn "Second LDAP server hostname including domain"
+	hosts="$hosts $_answer"
+	check_host_lookup xvp-ldap-2 "$_answer" -unique
+    }
+
+    prompt_for_non_empty "Search base DN"
+    basedn=$_answer
+    prompt_for_string "Search attribute (default 'cn')"
+    attr=$_answer
+    [ -z "$attr" ] && attr="cn"
+
+    prompt_for_string "Bind DN (default none)"
+    binddn=$_answer
+    if [ ! -z "$binddn" ]; then
+	binddn="AuthLDAPBindDN \"$binddn\""
+	prompt_for_password "Bind password"
+	bindpw="AuthLDAPBindPassword \"$_answer\""
+    fi
+
+    rm -f ${XVP_USERS_DIGEST_FILE}
+
+    cat >${XVP_LDAP_CONF_FILE} <<EOF
+#
+# ${XVP_LDAP_CONF_FILE}
+#
+# Written by xvpappliance-${XVP_APPLIANCE_VERSION}, $(date)
+#
+# Note: The LDAP-based authentication scheme here overrides the file based
+# authentication in ${XVP_WEB_CONF_FILE}.
+#
+# If the LDAP settings here don't quite meet your requirements, manually
+# edit and then restart web server using "service httpd restart".
+
+<Location /xvpweb>
+  AuthName "xvpweb"
+  AuthType basic
+  AuthBasicProvider ldap
+  AuthzLDAPAuthoritative on
+  AuthLDAPUrl "$proto://$hosts/$basedn?$attr"
+  $binddn
+  $bindpw
+  require valid-user
+</Location>
+EOF
+
+    if [ $? -ne 0 ]; then
+	echo "Failed to created ${XVP_LDAP_CONF_FILE}" 1>&2
+	return 1
+    fi
+
+    chown root:root ${XVP_LDAP_CONF_FILE}
+    chmod 600 ${XVP_LDAP_CONF_FILE}
+
+}
+
+create_ssl_web_crt()
+{
+    local sslkey=/etc/pki/tls/private/localhost.key
+    local sslcrt=/etc/pki/tls/certs/localhost.crt
+    local tmpkey=/tmp/xvpappliance.key.$$
+
+    prompt_for_yes "Create new SSL certificate for HTTPS" || return 0
+    echo
+
+    [ -f ${sslkey}.xvpappliance ] || cp -p ${sslkey} ${sslkey}.xvpappliance
+    [ -f ${sslcrt}.xvpappliance ] || cp -p ${sslcrt} ${sslcrt}.xvpappliance
+
+    rm -f $tmpkey
+    openssl genrsa -passout pass:xvpappliance -des3 1024 >$tmpkey 2>/dev/null
+    openssl req -new -passin pass:xvpappliance -key $tmpkey -x509 -days 365 -out $sslcrt
+    openssl rsa -passin pass:xvpappliance -in $tmpkey -out $sslkey 2>/dev/null
+    rm -f $tmpkey
+
+    return 0
+}
+
+manage_software_updates()
+{
+    while :; do
+	select_from_menu updates.menu run "Select an option" || break
+    done
+}
+
+configure_proxy_updates()
+{
+    local hostname proxy tmpfile=/tmp/xvpappliance.yumconf.$$
+
+    echo
+    prompt_for_no "Use a proxy server when fetching software updates" || {
+	prompt_for_proxy "Proxy URL"
+	proxy=$_answer
+    }
+    
+    grep -v '^proxy=' /etc/yum.conf >$tmpfile
+    [ -n "$proxy" ] && echo "proxy=$proxy" >>$tmpfile
+    cmp -s $tmpfile /etc/yum.conf
+    if [ $? -ne 0 ]; then
+	if [ -n "$proxy" ]; then 
+	    hostname=$(echo "$proxy" | sed -e 's@.*//@@' -e 's@[:/$].*@@')
+	    check_host_lookup xvp-http-proxy "$hostname" -unique
+	else
+	    remove_host_lookups xvp-http-proxy -quiet
+	fi
+	cp $tmpfile /etc/yum.conf && \
+	    echo "Proxy setting successfully updated"
+    else
+	[ ${BOOTSTRAPPING} = false ] && echo "Proxy setting unchanged"
+    fi
+
+    rm -f $tmpfile
+    return 0
+}
+
+configure_xvp_updates()
+{
+    local wgetenv wgetopts outfile
+    local listfile=/tmp/xvpappliance.packages.$$
+    local tmpfile=/tmp/xvpappliance.updates.$$
+    local rpmdir=/tmp/xvpappliance.rpmdir.$$
+
+    local package version url
+
+    # there is no RPM repository, just a list file on the website ...
+
+    wgetopts="--quiet --no-cache"
+    wgetenv=$(grep '^proxy=' /etc/yum.conf 2>/dev/null)
+    if [ $? -eq 0 ]; then
+	wgetenv="http_$wgetenv"
+    else
+	wgetopts="$wgetopts --no-proxy"
+    fi
+
+    [ ${MODE} != batch ] && echo "Checking for xvp updates, please wait ..."
+
+    eval $wgetenv wget $wgetopts -O $listfile ${XVP_PACKAGE_URL} || {
+	echo "Error checking for xvp updates"
+	rm -f $listfile
+	return 1
+    }
+
+    cp /dev/null $tmpfile
+    cat $listfile | while read package version url; do
+	case $package in
+	    xvp|xvpweb|xvpappliance|libxenserver|mod_proxy_connect_xvp)
+		if [ "$(rpm -q $package 2>/dev/null)" != "${package}-${version}" ]; then
+		    echo "${package} ${version} $url" >>$tmpfile
+		fi
+		;;
+	esac
+    done
+
+    if [ ! -s $tmpfile ]; then
+	[ ${MODE} != batch ] && echo -e "\nNo new xvp updates are available"
+	rm -f $listfile $tmpfile
+	return 0
+    fi
+
+    nupdates=$(cat $tmpfile | wc -l)
+    if [ ${MODE} = batch ]; then
+	cat <<EOF
+Hi,
+This is the automatic update system on $(hostname -f).
+EOF
+    fi
+    echo -e "\nThere are $nupdates xvp package updates available:\n"
+    awk '{
+	split($3,rpm,/\./);
+	printf("    %-36s %s\n",sprintf("%s.%s",$1,rpm[length(rpm)-1]),$2);
+    }' $tmpfile
+
+    if [ ${MODE} = batch ]; then
+	cat <<EOF
+
+Please run /usr/sbin/xvpappliance to install these updates.
+
+Thank You,
+Your Computer
+EOF
+	rm -f $listfile $tmpfile
+	return 0
+    fi
+
+    echo
+    prompt_for_yes "Download and install these updates now" && {
+	rm -rf $rpmdir
+	mkdir $rpmdir || return 1
+	cat $tmpfile | while read package version url; do
+	    outfile=$rpmdir/${package}-${version}.rpm
+	    echo -n "Downloading $url ... "
+	    eval $wgetenv wget $wgetopts -O $outfile $url
+	    if [ -s "$outfile" ]; then
+		echo "done"
+	    else
+		echo "failed"
+		echo -e "\nError downloading xvp updates" 1>&2
+		rm -rf $rpmdir
+		rm -f $listfile $tmpfile
+		return 1
+	    fi
+	done
+	echo "Installing updates ... "
+	rpm -Uvh $rpmdir/*.rpm
+	if [ $? -eq 0 ]; then
+	    echo "Successfully installed xvp updates"
+	    repatch_httpd_tunnel
+	    if grep -qs '^xvpappliance ' $listfile; then
+		echo -e "\nThis program has been updated and must restart"
+		prompt_for_continue
+		rm -rf /tmp/xvpappliance.*.$$
+		exec /usr/sbin/xvpappliance
+	    fi
+	else
+	    echo -e "\nError installing xvp updates" 1>&2
+	    rm -rf $rpmdir
+	    rm -f $listfile $tmpfile
+	    return 1
+	fi
+    }
+
+    rm -rf $rpmdir
+    rm -f $listfile $tmpfile
+    return 0
+}
+
+configure_linux_updates()
+{
+    local nupdates tmpfile=/tmp/xvpappliance.updates.$$
+
+    echo "Checking for Linux updates, please wait ..."
+    yum -q check-update >$tmpfile
+    case $? in
+	0)
+	    echo -e "\nNo new Linux updates are available"
+	    rm -f $tmpfile
+	    return 0
+	    ;;
+	1)
+	    echo -e "\nError checking for Linux updates"
+	    rm -f $tmpfile
+	    return 1
+	    ;;
+	*)
+	    nupdates=$(grep -v '^$' $tmpfile | wc -l)
+	    echo -e "\nThere are $nupdates Linux package updates available:"
+	    awk '{ printf("    %-36s %s\n", $1, $2); }' $tmpfile | more
+	    echo
+	    prompt_for_yes "Download and install these updates now" || return 0
+	    ;;
+    esac
+
+    yum -y --obsoletes update || return 1
+    repatch_httpd_tunnel
+    if grep -qs '^kernel' $tmpfile; then
+	echo -e "\nAn updated Linux kernel has been installed: the system should be rebooted.\n"
+	prompt_for_yes "Reboot system now" && {
+	    rm -f $tmpfile
+	    reboot
+	    quit
+	}
+    fi
+
+    rm -f $tmpfile
+    return 0
+}
+
+configure_schedule_updates()
+{
+    local frequency interval emit action
+    local tmpfile=/tmp/xvpappliance.yumupdates.$$
+
+    select_from_menu schedule.menu get \
+	"How frequently do you want to check for software updates"
+    frequency=$_selection
+    set_cron_entry update $_selection
+
+    if [ ! -f /usr/sbin/yum-updatesd -o ! -f /etc/yum/yum-updatesd.conf ]; then
+	echo -e "Unable to schedule checks for Linux updates: yum-updatesd not found" 1>&2
+	return 1
+    fi
+
+    service yum-updatesd status >/dev/null 2>&1
+    if [ $? -eq 0 ]; then
+	action="restart"
+    else
+	action="start"
+    fi
+
+    emit="dbus email"
+    case "$frequency" in
+	hourly)
+	    interval=$((60 * 60))
+	    ;;
+	daily)
+	    interval=$((60 * 60 * 24))
+	    ;;
+	weekly)
+	    interval=$((60 * 60 * 24 * 7))
+	    ;;
+	monthly)
+	    interval=$((60 * 60 * 24 * 30))
+	    ;;
+	never)
+	    # these are the CentOS default settings
+	    interval=$((60 * 60))
+	    emit="dbus"
+	    ;;
+	*)
+	    echo "Internal error: bad frequency $frequency" 1>&2
+	    exit 1
+	    ;;
+    esac
+
+    sed -e "s/^run_interval.*$/run_interval = $interval/" \
+	-e "s/^emit_via.*$/emit_via = $emit/" /etc/yum/yum-updatesd.conf \
+	>$tmpfile
+    if cmp -s $tmpfile /etc/yum/yum-updatesd.conf; then
+	rm -f $tmpfile
+	return 0
+    fi
+
+    [ -f /etc/yum/yum-updatesd.conf.xvpappliance ] || \
+	cp -p /etc/yum/yum-updatesd.conf /etc/yum/yum-updatesd.conf.xvpappliance
+
+    cp $tmpfile /etc/yum/yum-updatesd.conf
+    rm -f $tmpfile
+
+    if [ "$frequency" = "never" ]; then
+	[ "$action" = "restart" ] && service yum-updatesd stop
+	chkconfig yum-updatesd off
+    else
+	service yum-updatesd $action
+	chkconfig yum-updatesd on
+    fi
+
+    return 0
+}
+
+main "$@"
+
+# -----------------------------------------------------------------------

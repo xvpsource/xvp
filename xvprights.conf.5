@@ -1,0 +1,160 @@
+.TH  "XVPRIGHTS.CONF" "5" "11 January 2011" "Colin Dean" "Colin Dean"
+.SH NAME
+xvprights.conf \- Rights definition file for xvpweb
+
+.SH SYNOPSIS
+The \fIxvprights.conf\fR file is a rights definition file for
+\fBxvpweb\fR(7), the web based front end for \fBxvp\fR(8).
+
+It determines how \fBrights\fR assigned to a user in the file
+\fIxvpusers.conf\fR(5) relate to individual \fBoperations\fR the user
+may perform on virtual machines using \fBxvpweb\fR(7).  For instance,
+the default rights definitions are such that a user needs \fBcontrol\fR
+rights to boot a virtual machine, but \fBall\fR rights in order to
+migrate a virtual machine from one server host to another.
+.PP
+Whereas the \fBrights\fR defined in \fIxvpusers.conf\fR(5) are per-user,
+and can give a user different rights for different virtual machines, the
+relationship between \fBoperations\fR and \fBrights\fR defined in
+\fIxvpusers.conf\fR(5) apply uniformly to all users and all virtual
+machines.
+
+.SH DEFAULT AND CUSTOM DEFINITIONS
+The default relationships between operations and rights are defined in
+the file \fI/usr/share/xvp/xvprights.default\fR, which is supplied as a
+standard part of \fBxvpweb\fR(7).  This file is not intended to be
+modified by the administrator, and it may be overwritten when a newer
+version of \fBxvpweb\fR(7) is installed.
+.PP
+An administrator wishing to change the default definitions should copy
+\fI/usr/share/xvp/xvprights.default\fR as \fI/etc/xvprights.conf\fR, and
+modify the latter in order to specify custom definitions.  If you are
+happy to use the default definitions, do not create a separate
+\fI/etc/xvprights.conf\fR file.  To revert to using the default
+definitions, simply delete any \fI/etc/xvprights.conf\fR file.
+Installing a new version of \fBxvpweb\fR(7) does not overwrite the
+custom definitions file.
+.PP
+An example use for \fI/etc/xvprights.conf\fR might be to raise the
+rights needed to suspend virtual machines, from \fBcontrol\fR to
+\fBall\fR, or to lower the rights needed to connect ISO images as
+virtual DVD drives from \fBall\fR to \fBcontrol\fR or to \fBwrite\fR.
+.PP
+Any changes made to definitions files take effect immediately: there is
+no need to restart any server processes, and users' web browsers should
+reflect any changes (for example, disabling or enabling context menu
+items) within 1 minute.
+
+.SH FILE FORMAT
+The same format is used for both \fI/usr/share/xvp/xvprights.default\fR
+and \fI/etc/xvprights.conf\fR.  
+.PP
+Each line should consist of the name of one of the operations predefined by
+\fBxvpweb\fR(7), followed by a colon, ':', followed by the name of one
+of the rights predefined by \fBxvpweb\fR(7).  For example,
+.PP
+.RS
+\fBmigrate:all\fR
+.RE
+.PP
+which says that the \fBmigrate\fR operation requires \fBall\fR rights.
+If a '#' appears on a line, the rest of the line is treated as a
+comment.  Blank lines and additional white-space may be used to aid
+readability, so a line such as:
+.PP
+.RS
+\fBmigrate : all # Migrate a VM to a different host\fR
+.RE
+.PP
+is valid, and equivalent to the example above.
+.PP
+The complete set of currently defined operations is as listed in the
+supplied \fI/usr/share/xvp/xvprights.default\fR file, which is commented
+to explain the meaning of each.  The complete set of currently defined
+rights is as listed in the \fBxvpusers.conf\fR(5) manual page.  In
+addition, the value \fBdisabled\fR may be specified for any operation in
+\fI/etc/xvprights.conf\fR: the effect of this is to disable use of the
+operation by all users, even if they have \fBall\fR rights.  For
+example, the line:
+.PP
+.RS
+\fBsuspend : disabled\fR
+.RE
+.PP
+would prevent all users of \fBxvpweb\fR from suspending any virtual
+machines.
+.SH CAVEATS
+If the definition for a particular operation is missing, the operation
+is assumed to be disabled.
+.PP
+If the file \fI/etc/xvprights.conf\fR exists and is readable, then
+\fI/usr/share/xvp/xvprights.default\fR is not read at all: there is no
+facility to fall back to the latter for any individual operations whose
+definition may be missing from the former.  Administrators who have
+custom definitions should check, when they install any updated version
+of \fBxvpweb\fR(7), whether there are updates to the default file that
+they may need to reflect in their custom file.
+.PP
+Rights definition files need to have filesystem permissions such that
+they are readable by the web server program: an unreadable file is
+quietly treated as if missing.  Administrators are recommended to set
+any \fI/etc/xvprights.conf\fR file to have ownership 'root' and mode 644.
+.PP
+The rights required to access server hosts (as opposed to virtual
+machines) are defined separately using \fBxvpusers.conf\fR(5): the use
+of \fBxvprights.conf\fR(5) does not affect this in any way.
+.SH FILES
+.PD 0
+.TP
+.I /usr/share/xvp/xvprights.default
+File containing default definitions, not intended to be edited.
+.TP
+.I /etc/xvprights.conf
+Optional file defining custom definitions.
+.PD
+
+.SH "SEE ALSO"
+\fBxvp.conf\fR(5),
+\fBxvpusers.conf\fR(5),
+\fBxvp\fR(8),
+\fBxvpweb\fR(7)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2009-2011 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+

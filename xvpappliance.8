@@ -1,0 +1,201 @@
+.TH  "XVPAPPLIANCE" "8" "27 December 2010" "Colin Dean" "Colin Dean"
+.SH NAME
+xvpappliance \- Configuration program for xvpappliance
+
+.SH SYNOPSIS
+.PP
+\fBxvpappliance\fR
+
+.SH DESCRIPTION
+This program is part of the \fBxvp\fR(8) suite, which provides web-based
+management of virtual machines running on Citrix Xen Server and/or Xen
+Cloud Platform.
+.PP
+The
+.B xvpappliance
+program can be used to manage the configuration of a self-contained
+xvpappliance virtual machine.  It is currently only supported in a
+virtual machine running 64-bit CentOS 5.
+.PP
+It has a simple menu-driven text-based interface.
+
+.SH FIRST TIME CONFIGURATION
+The first time the the xvpappliance configuration program is run, the
+user is presented with initial configuration questions.  These are to
+set the appliance root password, timezone, network, email and web
+configuration, and to specify the initial set of XenServer and/or Xen
+Cloud Platform pools to manage, and to create an initial web user
+account.
+.PP
+This first time configuration must be run from the appliance's console.
+.PP
+After this is complete, a menu is available from which further
+configuration can be performed.  The menu options are detailed below
+and, except where stated otherwise, can be used either from the console
+or via an \fBssh\fR(1) session.
+
+.SH ABOUT THIS PROGRAM
+This option displays details of the program's version, and the versions
+of all installed xvp-related packages.
+
+.SH CONFIGURE TIMEZONE
+This option allows the appliance's timezone to be set: follow the menu
+options to pick the closest location. The underlying clock of the VM is
+synchronised with the server host's clock, and should not need
+adjusting.
+
+.SH CONFIGURE NETWORK
+This allows the appliance's hostname, IP address, netmask, default
+gateway and DNS server settings to be changed.  This option must be used
+from the appliance's console.
+
+.SH CONFIGURE EMAIL
+Using this option, the email address to which notification of available
+updates is sent, and the SMTP gateway through which emails are sent, can
+be changed.  If the gateway requires authentication, the username and
+password can be specified here.
+
+.SH CONFIGURE XVP POOLS
+This menu option displays a submenu allowing you to list, add and remove
+from the set of pools (and/or standalone server hosts) that the
+appliance manages.
+.PP
+This submenu item also allows you to rediscover pool details. By
+default, although the state of existing VMs is tracked in quasi real
+time, the addition and removal of hosts and/or VMs from a pool is not
+tracked, so when you make such changes to your pools, the web interface
+does not reflect this. There are two ways to update the interface to
+reflect these changes: using the submenu option "Rediscover details for
+all pools now" to update immediately, and/or the option "Schedule
+regular rediscovery of pool details", to enable automatic update every
+hour, day, week or month.
+.PP
+Note: Regular rediscovery does not take place until you explicitly use
+the schedule option.
+
+.SH CONFIGURE XVP USERS
+This option allows you to add and remove web users: to add one, you will
+need to give a username (and password, unless using LDAP-based
+authentication) and you then set whether the user should have access to
+all pools and VMs, or all VMs in a single pool or group, or a single
+VM. In addition, you will be asked to set the user's rights: there are 5
+possible settings (List, Read, Write, Control and All), and there is a
+Help option which explains exactly what these mean.  You also have the
+choice of whether the user should be able to see the server hosts, or
+whether these should be hidden.
+
+.SH CONFIGURE WEB SERVER
+This option allows the web server built into xvpappliance to be
+configured.  It provides a choice of whether web users connecting via
+HTTP should be redirected to HTTPs or not, whether VM console VNC
+connections should be tunnelled over HTTP/HTTPS or not, and allows
+re-generation of a self-signed SSL certificate for HTTPS.  
+
+It also allows you to choose whether to authenticate users using an
+external LDAP server (e.g. Active Directory), or to use built in user
+accounts.
+ 
+.SH MANAGE SOFTWARE UPDATES
+This option allows you to change the schedule of how often new updates
+are checked for, and to apply any available updates. There are 2 sorts
+of updates: Linux updates (which you should apply for security reasons),
+and xvp updates (check the website for details of these before
+applying).
+
+.SH UNCONFIGURE APPLIANCE
+Should you wish to completely unconfigure your appliance, and return it
+to its initial state (apart from software updates), use this
+option. This will throw away everything you have previously configured,
+and reset the root password to "xvpappliance". You can then configure
+again from scratch, by rebooting or running /usr/sbin/xvpappliance.
+
+.SH QUIT FROM PROGRAM
+This removes any temporary files and terminates the program.
+
+.SH ESCAPING SHELL COMMANDS
+Whenever the program presents you with a numbered menu, you can escape
+any Linux command by entering it prefixed with "!" instead of entering a
+number. When the command completes, the menu is re-displayed.
+
+.SH FILES
+.PD 0
+.TP
+.I /usr/sbin/xvpappliance
+The configuration program.
+.TP
+.I /usr/share/xvp
+Directory containing menu files used by the program.
+.TP
+.I /tmp/xvpappliance.*.*
+Temporary files used by the program.
+.PD
+
+.SH CHARACTER ENCODING
+Names of pools, hosts, groups and virtual machines may contain non-ASCII
+characters, provided they are encoded using UTF-8.  Owing to limitations
+in the Xen API, non-ASCII characters may not be displayed correctly on
+the appliance console, but will be displayed correctly if using an
+\fBssh\fR(1) session, provided the ssh client program is set to use
+UTF-8 encoding.
+
+.SH "SEE ALSO"
+\fBxvp\fR(8),
+\fBxvpdiscover\fR(8),
+\fBxvpweb\fR(7),
+\fBxvpviewer\fR(1),
+\fBssh\fR(1)
+
+.SH AUTHOR
+Colin Dean <colin@xvpsource.org>
+
+.SH COPYRIGHT
+Copyright \(co 2010 Colin Dean
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+Citrix is a registered trademark of Citrix Systems, Inc.
+
+The VNC protocol was originally developed by the RealVNC team while at
+Olivetti Research Ltd / AT&T Laboratories Cambridge.
+
+\fBxvpviewer\fR(1), which provides access to virtual machine consoles
+for xvpappliance, is based on the TightVNC viewer. The TightVNC versions
+of all xvp-modified files, and all TightVNC documentation files, are
+distributed with xvpviewer, renamed as *.tightvnc. For TightVNC
+copyright information, refer to the file README.tightvnc.
+
+The web interface, \fBxvpweb\fR(7) includes "XML-RPC for PHP", Copyright
+\(co 1999, 2000, 2002 Edd Dumbill. All rights reserved. The full
+copyright notice and disclaimer for this can be found in the included
+file xmlrpc.inc.
+
+\fBxvpweb\fR(7) also includes the jQuery library, Copyright \(co 2010 The jQuery
+Project, and the jQuery Context Menu Plugin, Copyright \(co 2008 A
+Beautiful Site, LLC. Both are dual-licensed under the GNU General Public
+License and the MIT License.
+
+A small part of the source code for \fBxvp\fR(8), \fBxvpdiscover\fR(8)
+and \fBxvptag\fR(8) was based on code supplied in the XenServer C SDK
+5.0.0, to which the following copyright statement applies:
+
+Copyright \(co 2006-2008 Citrix Systems, Inc.
+
+Permission to use, copy, modify, and distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

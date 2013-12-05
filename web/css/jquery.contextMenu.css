@@ -1,0 +1,70 @@
+/* Generic context menu styles */
+.contextMenu {
+	position: absolute;
+	width: 140px;
+	z-index: 99999;
+	border: solid 1px #CCC;
+	background: #EEE;
+	padding: 0px;
+	margin: 0px;
+	display: none;
+}
+
+.contextMenu LI {
+	list-style: none;
+	padding: 0px;
+	margin: 0px;
+}
+
+.contextMenu A {
+	color: #333;
+	text-decoration: none;
+	display: block;
+	line-height: 20px;
+	height: 20px;
+	background-position: 6px center;
+	background-repeat: no-repeat;
+	outline: none;
+	padding: 1px 5px;
+	padding-left: 28px;
+}
+
+.contextMenu LI.hover A {
+	color: #FFF;
+	background-color: #3399FF;
+}
+
+.contextMenu LI.disabled A {
+	color: #AAA;
+	cursor: default;
+}
+
+.contextMenu LI.hover.disabled A {
+	background-color: transparent;
+}
+
+.contextMenu LI.separator {
+	border-top: solid 1px #CCC;
+}
+
+/*
+	Adding Icons
+	
+	You can add icons to the context menu by adding
+	classes to the respective LI element(s)
+*/
+
+.contextMenu LI.console A { background-image: url(../images/console-menu.png); }
+.contextMenu LI.boot A { background-image: url(../images/boot-menu.png); }
+.contextMenu LI.booton A { background-image: url(../images/boot-menu.png); }
+.contextMenu LI.bootrecovery A { background-image: url(../images/boot-menu.png); }
+.contextMenu LI.shutdown A { background-image: url(../images/shutdown-menu.png); }
+.contextMenu LI.poweroff A { background-image: url(../images/poweroff-menu.png); }
+.contextMenu LI.reboot A { background-image: url(../images/reboot-menu.png); }
+.contextMenu LI.reset A { background-image: url(../images/reset-menu.png); }
+.contextMenu LI.suspend A { background-image: url(../images/suspend-menu.png); }
+.contextMenu LI.resume A { background-image: url(../images/resume-menu.png); }
+.contextMenu LI.resumeon A { background-image: url(../images/resume-menu.png); }
+.contextMenu LI.migrate A { background-image: url(../images/migrate-menu.png); }
+.contextMenu LI.snapshot A { background-image: url(../images/snapshot-menu.png); }
+.contextMenu LI.properties A { background-image: url(../images/properties-menu.png); }

@@ -1,0 +1,4 @@
+configure_email_recipients:Configure email recipients
+configure_email_gateway:Configure email gateway
+configure_email_test:Send a test email
+return:Return to previous menu
